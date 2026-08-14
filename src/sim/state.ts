@@ -7,7 +7,9 @@ import { createRng } from '../core/rng.ts';
 import {
   BOSSES,
   BOSS_ORDER,
+  MATERIAL_ORDER,
   MINE,
+  RECIPE_PRIMARY,
   PLAYER,
   SAVE_VERSION,
   TEMPERING_REDUCTION,
@@ -122,6 +124,19 @@ export function addToBackpack(
   const put = Math.min(free, amount);
   bp[material] += put;
   return put;
+}
+
+/**
+ * Хватает ли материала хоть на какое-нибудь оружие.
+ *
+ * Если нет — игрок в тупике, и ему нужно предложить выход: спуститься ещё раз
+ * или выбросить лишнее из полного рюкзака.
+ */
+export function canForgeAnything(meta: MetaState): boolean {
+  for (const m of MATERIAL_ORDER) {
+    if (meta.backpack[m] >= RECIPE_PRIMARY) return true;
+  }
+  return false;
 }
 
 export function hpMaxFor(): number {

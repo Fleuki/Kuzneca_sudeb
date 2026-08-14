@@ -19,6 +19,7 @@ const DASH = ['ShiftLeft', 'ShiftRight', 'KeyK', 'KeyL'];
 
 /** Клавиши, у которых прокрутка страницы мешает игре. */
 const PREVENT = new Set([
+  'Backspace',
   'Space',
   'ArrowLeft',
   'ArrowRight',
@@ -128,6 +129,13 @@ function mapKey(code: string, phase: Phase): Command | null {
   if (phase === 'combat') {
     if (code === 'Escape') return { type: 'MENU_BACK' };
     return null;
+  }
+
+  // Кузница: спуститься ещё раз и выбросить лишнее — из этих двух действий
+  // складывается защита от тупика, поэтому они есть и на клавиатуре.
+  if (phase === 'forge') {
+    if (code === 'KeyR') return { type: 'RETURN_TO_MINE' };
+    if (code === 'Backspace' || code === 'Delete') return { type: 'DISCARD_SELECTED' };
   }
 
   switch (code) {

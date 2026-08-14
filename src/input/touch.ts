@@ -14,6 +14,7 @@
 import type { Command } from '../core/commands.ts';
 import { emptyInput } from '../core/types.ts';
 import type { GameState, InputState, Phase } from '../core/types.ts';
+import { backpackCapacity, backpackTotal } from '../sim/state.ts';
 import type { HitRegion } from '../render/scenes/scene.ts';
 
 /** Действия, которые удерживаются пальцем. */
@@ -31,7 +32,9 @@ type ButtonId =
   | 'prev'
   | 'next'
   | 'ok'
-  | 'back';
+  | 'back'
+  | 'mine'
+  | 'drop';
 
 interface ButtonDef {
   id: ButtonId;
@@ -57,6 +60,8 @@ const BUTTONS: ButtonDef[] = [
   { id: 'next', label: '▶', tap: { type: 'MENU_MOVE', delta: 1 }, cls: 'kz-btn kz-nav kz-next' },
   { id: 'ok', label: 'Ковать', tap: { type: 'MENU_CONFIRM' }, cls: 'kz-btn kz-wide kz-ok' },
   { id: 'back', label: 'Назад', tap: { type: 'MENU_BACK' }, cls: 'kz-btn kz-small kz-back' },
+  { id: 'mine', label: 'В шахту', tap: { type: 'RETURN_TO_MINE' }, cls: 'kz-btn kz-small kz-mine' },
+  { id: 'drop', label: 'Выбросить', tap: { type: 'DISCARD_SELECTED' }, cls: 'kz-btn kz-small kz-drop' },
 ];
 
 /** Какие кнопки показывать и что на них написано в текущей фазе. */
@@ -89,7 +94,10 @@ function layoutFor(state: GameState): { visible: Set<ButtonId>; labels: Partial<
       if (stage === 'select') {
         // Строки рецепта тапаются напрямую — стрелки только загораживали бы карточку.
         visible.add('ok');
+        visible.add('mine');
         labels.ok = 'Ковать';
+        // «Выбросить» нужно только когда рюкзак полон: иначе место ещё есть.
+        if (backpackTotal(state.meta.backpack) >= backpackCapacity(state.meta)) visible.add('drop');
       } else if (stage === 'minigame') {
         visible.add('ok');
         labels.ok = 'Удар';

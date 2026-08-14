@@ -28,7 +28,7 @@ import { generateMine } from './mine/generate.ts';
 import { stepMine } from './mine/step.ts';
 import { beginMinigame, canForge, createForgeState, forgeStrike, requiredAmount, stepForge } from './forge/step.ts';
 import { combatFinished, createCombat, stepCombat } from './combat/step.ts';
-import { availableBosses, canAfford, hasUpgrade, oreYield } from './state.ts';
+import { availableBosses, canAfford, canForgeAnything, hasUpgrade, oreYield } from './state.ts';
 
 const NOTICE_TIME = 2.6;
 
@@ -109,6 +109,14 @@ export function dispatch(state: GameState, cmd: Command): void {
 
     case 'FORGE_TAKE':
       takeWeapon(state);
+      break;
+
+    case 'RETURN_TO_MINE':
+      returnToMine(state);
+      break;
+
+    case 'DISCARD_SELECTED':
+      discardSelected(state);
       break;
 
     case 'RESULT_CONTINUE':
@@ -213,6 +221,10 @@ function leaveMine(state: GameState): void {
   state.forge.primary = richestMaterial(state) ?? null;
   state.phase = 'forge';
   state.mine = null;
+
+  if (!canForgeAnything(state.meta)) {
+    notice(state, `Ни одного материала не набралось на ${RECIPE_PRIMARY} — придётся спуститься ещё раз`);
+  }
 }
 
 function tryBeginForge(state: GameState): void {
@@ -254,6 +266,50 @@ function takeWeapon(state: GameState): void {
   state.combat = createCombat(state);
   state.phase = 'combat';
   state.forge = null;
+}
+
+/**
+ * Спуск в шахту второй раз за забег.
+ *
+ * Возвращает на выбор биома, а не сразу в старую шахту: если материала не хватило,
+ * скорее всего нужен другой биом. Босс остаётся выбранным, рюкзак сохраняется,
+ * здоровье — нет. Именно здоровье и есть цена лишнего захода: урон из шахты
+ * переносится в бой (§4), так что второй спуск оплачивается тем же, чем и первый.
+ */
+function returnToMine(state: GameState): void {
+  const forge = state.forge;
+  const run = state.run;
+  if (!forge || !run || forge.stage !== 'select') return;
+
+  state.forge = null;
+  state.mine = null;
+  state.phase = 'biomeSelect';
+  state.menuCursor = 0;
+  notice(state, 'Спускаешься ещё раз. Здоровье не восстановится.');
+}
+
+/** Материал, на который сейчас наведён курсор рецепта. */
+export function selectedMaterial(state: GameState): MaterialId | null {
+  const forge = state.forge;
+  if (!forge) return null;
+  return forge.cursorRow === 2 ? forge.secondary : forge.primary;
+}
+
+/** Выбрасывает весь запас выбранного материала — освобождает рюкзак под нужную руду. */
+function discardSelected(state: GameState): void {
+  const forge = state.forge;
+  if (!forge || forge.stage !== 'select') return;
+
+  const material = selectedMaterial(state);
+  if (!material) return;
+
+  const amount = state.meta.backpack[material];
+  if (amount <= 0) return;
+
+  state.meta.backpack[material] = 0;
+  if (forge.primary === material) forge.primary = richestMaterial(state);
+  if (forge.secondary === material) forge.secondary = null;
+  notice(state, `Выброшено: ${MATERIALS[material].name} ×${amount}`);
 }
 
 function finishCombat(state: GameState): void {
