@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-yandex/
+*.local
+.DS_Store
+.vite/
+*.log
