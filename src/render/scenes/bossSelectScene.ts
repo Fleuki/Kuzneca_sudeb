@@ -13,13 +13,21 @@ import type { GameState } from '../../core/types.ts';
 import { isDefeated } from '../../sim/state.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, drawSelection, makeText } from '../ui.ts';
+import { hintFor } from '../uiMode.ts';
 import { drawScreenBackground } from './scene.ts';
-import type { Scene } from './scene.ts';
+import type { HitRegion, Scene } from './scene.ts';
 
 const CARD_W = 276;
 const CARD_H = 316;
 const CARD_Y = 132;
 const MAX_CARDS = 3;
+const CARD_GAP = 20;
+
+/** X левого края карточки i — общий расчёт для отрисовки и для тапов. */
+function cardX(index: number, count: number): number {
+  const totalW = count * CARD_W + (count - 1) * CARD_GAP;
+  return VIEW_W / 2 - totalW / 2 + index * (CARD_W + CARD_GAP);
+}
 
 interface CardTexts {
   name: Text;
@@ -38,7 +46,7 @@ export class BossSelectScene implements Scene {
     'Решай сейчас: от этого зависит, в какой биом идти за материалом',
     style(15, COLORS.goldDim),
   );
-  private hint = makeText('← → выбор · Enter подтвердить · Esc назад', SMALL_STYLE);
+  private hint = makeText('', SMALL_STYLE);
   private cards: CardTexts[] = [];
 
   constructor() {
@@ -67,11 +75,10 @@ export class BossSelectScene implements Scene {
 
     centerText(this.title, VIEW_W / 2, 52);
     centerText(this.subtitle, VIEW_W / 2, 90);
+    this.hint.text = hintFor('← → выбор · Enter подтвердить', 'Выбери карточку касанием');
     centerText(this.hint, VIEW_W / 2, 496);
 
     const offered = state.run?.offered ?? [];
-    const totalW = offered.length * CARD_W + (offered.length - 1) * 20;
-    const startX = VIEW_W / 2 - totalW / 2;
 
     for (let i = 0; i < MAX_CARDS; i++) {
       const card = this.cards[i];
@@ -80,7 +87,7 @@ export class BossSelectScene implements Scene {
       if (!visible) continue;
 
       const def = BOSSES[offered[i]];
-      const x = startX + i * (CARD_W + 20);
+      const x = cardX(i, offered.length);
       const selected = state.menuCursor === i;
 
       drawPanel(g, x, CARD_Y, CARD_W, CARD_H, {
@@ -117,6 +124,20 @@ export class BossSelectScene implements Scene {
       card.status.text = isDefeated(state.meta, def.id) ? '✓ уже побеждён' : '';
       card.status.position.set(x + pad, CARD_Y + CARD_H - 26);
     }
+  }
+
+  hitRegions(state: GameState): HitRegion[] {
+    const offered = state.run?.offered ?? [];
+    return offered.map((bossId, i) => ({
+      x: cardX(i, offered.length),
+      y: CARD_Y,
+      w: CARD_W,
+      h: CARD_H,
+      commands: [
+        { type: 'MENU_SET', index: i } as const,
+        { type: 'SELECT_BOSS', bossId } as const,
+      ],
+    }));
   }
 }
 

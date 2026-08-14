@@ -35,6 +35,11 @@ export type Command =
   | { type: 'CLOSE_UPGRADES' }
   /** Перемещение курсора на экранах меню. */
   | { type: 'MENU_MOVE'; delta: number }
+  /**
+   * Поставить курсор меню в конкретную позицию. Нужна сенсорному вводу:
+   * палец бьёт сразу по нужному пункту, а не листает до него.
+   */
+  | { type: 'MENU_SET'; index: number }
   | { type: 'MENU_ROW'; delta: number }
   | { type: 'MENU_CONFIRM' }
   | { type: 'MENU_BACK' }

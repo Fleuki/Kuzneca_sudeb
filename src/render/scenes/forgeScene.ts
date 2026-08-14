@@ -12,20 +12,24 @@ import { Container, Graphics, Text } from 'pixi.js';
 import {
   FORGE,
   MATERIALS,
+  MATERIAL_ORDER,
   RECIPE_PRIMARY,
   RECIPE_SECONDARY,
   SHAPES,
+  SHAPE_ORDER,
   VIEW_H,
   VIEW_W,
 } from '../../core/constants.ts';
-import type { ForgeState, GameState, Weapon } from '../../core/types.ts';
+import type { Command } from '../../core/commands.ts';
+import type { ForgeState, GameState, MaterialId, Weapon } from '../../core/types.ts';
 import { durabilityCost } from '../../sim/state.ts';
 import { requiredAmount } from '../../sim/forge/step.ts';
 import { buildWeapon, weaponDps, weaponHits } from '../../sim/forge/weapon.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawBar, drawPanel, drawSelection, makeText } from '../ui.ts';
-import { drawScreenBackground } from './scene.ts';
-import type { Scene } from './scene.ts';
+import { hintFor } from '../uiMode.ts';
+import { drawScreenBackground, fullScreenRegion } from './scene.ts';
+import type { HitRegion, Scene } from './scene.ts';
 
 const ROW_LABELS = ['Форма', 'Основной материал', 'Вторичный материал'];
 const ROW_Y = [148, 226, 304];
@@ -65,7 +69,7 @@ export class ForgeScene implements Scene {
   // Мини-игра
   private strikeLabel = makeText('', style(18, COLORS.text));
   private resultLabel = makeText('', style(30, COLORS.gold, { letterSpacing: 3 }));
-  private minigameHint = makeText('Пробел — удар', SMALL_STYLE);
+  private minigameHint = makeText('', SMALL_STYLE);
 
   // Итоги ковки
   private bonusLabels: Text[] = [];
@@ -227,7 +231,10 @@ export class ForgeScene implements Scene {
       this.strikesNote.text = '';
     }
 
-    this.hint.text = '↑↓ строка · ← → значение · Enter ковать · Esc бросить забег';
+    this.hint.text = hintFor(
+      '↑↓ строка · ← → значение · Enter ковать · Esc бросить забег',
+      'Тапни по краям строки, чтобы листать значение',
+    );
   }
 
   /** Что показывать в строке r и хватает ли материала. */
@@ -380,6 +387,7 @@ export class ForgeScene implements Scene {
       this.resultLabel.visible = false;
     }
 
+    this.minigameHint.text = hintFor('Пробел — удар', 'Тапни, чтобы ударить');
     centerText(this.minigameHint, VIEW_W / 2, BAR_Y - 28);
     this.hint.text = '';
   }
@@ -421,6 +429,83 @@ export class ForgeScene implements Scene {
     this.recipe.text = `Идеальных: ${perfect}   ·   попаданий: ${good}   ·   промахов: ${miss}`;
     this.recipe.position.set(LEFT_X, CARD_Y + CARD_H - 24);
 
-    this.hint.text = 'Enter — выйти на арену';
+    this.hint.text = hintFor('Enter — выйти на арену', 'Тапни, чтобы выйти на арену');
   }
+
+  /**
+   * В мини-игре и на карточке готового оружия годится тап в любое место:
+   * попадать пальцем в маленькую кнопку в момент, когда бегунок в идеальной
+   * зоне, — это соревнование с интерфейсом, а не с игрой.
+   *
+   * На выборе рецепта тапают прямо по строкам: края строки листают значение,
+   * середина просто переносит фокус. Так экранные стрелки не нужны и не лезут
+   * поверх карточки с характеристиками.
+   */
+  hitRegions(state: GameState): HitRegion[] {
+    const forge = state.forge;
+    if (!forge) return [];
+
+    if (forge.stage === 'minigame' || forge.stage === 'done') {
+      return [fullScreenRegion({ type: 'MENU_CONFIRM' })];
+    }
+
+    const regions: HitRegion[] = [];
+    const arrowW = 84;
+
+    for (let r = 0; r < ROW_Y.length; r++) {
+      const y = ROW_Y[r];
+      // Курсор переносим на тронутую строку: подсветка должна идти за пальцем.
+      const delta = r - forge.cursorRow;
+      const focus: Command[] = delta === 0 ? [] : [{ type: 'MENU_ROW', delta }];
+
+      regions.push({
+        x: LEFT_X,
+        y,
+        w: arrowW,
+        h: ROW_H,
+        commands: [...focus, valueCommand(forge, r, -1)],
+      });
+      regions.push({
+        x: LEFT_X + ROW_W - arrowW,
+        y,
+        w: arrowW,
+        h: ROW_H,
+        commands: [...focus, valueCommand(forge, r, 1)],
+      });
+      regions.push({
+        x: LEFT_X + arrowW,
+        y,
+        w: ROW_W - arrowW * 2,
+        h: ROW_H,
+        commands: focus,
+      });
+    }
+
+    return regions;
+  }
+}
+
+/** Следующее или предыдущее значение в строке рецепта — абсолютной командой. */
+function valueCommand(forge: ForgeState, row: number, dir: number): Command {
+  if (row === 0) {
+    const i = SHAPE_ORDER.indexOf(forge.shape);
+    return {
+      type: 'FORGE_SET_SHAPE',
+      shape: SHAPE_ORDER[(i + dir + SHAPE_ORDER.length) % SHAPE_ORDER.length],
+    };
+  }
+  if (row === 1) {
+    const i = forge.primary ? MATERIAL_ORDER.indexOf(forge.primary) : 0;
+    return {
+      type: 'FORGE_SET_PRIMARY',
+      material: MATERIAL_ORDER[(i + dir + MATERIAL_ORDER.length) % MATERIAL_ORDER.length],
+    };
+  }
+  // У вторичного есть дополнительный вариант «без вторичного».
+  const options: (MaterialId | null)[] = [...MATERIAL_ORDER, null];
+  const i = options.indexOf(forge.secondary);
+  return {
+    type: 'FORGE_SET_SECONDARY',
+    material: options[(i + dir + options.length) % options.length],
+  };
 }

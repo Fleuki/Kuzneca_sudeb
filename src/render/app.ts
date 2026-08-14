@@ -14,6 +14,11 @@ export interface Viewport {
   app: Application;
   /** Корень логической сцены 960×540. Всё рисуется внутри него. */
   root: Container;
+  /**
+   * Переводит координаты события мыши или касания в логические 960×540.
+   * Нужен слою ввода, чтобы понять, по какому пункту экрана ткнули пальцем.
+   */
+  toLogical(clientX: number, clientY: number): { x: number; y: number };
 }
 
 export async function createViewport(mount: HTMLElement): Promise<Viewport> {
@@ -47,5 +52,14 @@ export async function createViewport(mount: HTMLElement): Promise<Viewport> {
   resize();
   window.addEventListener('resize', resize);
 
-  return { app, root };
+  const toLogical = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = app.canvas.getBoundingClientRect();
+    const scale = root.scale.x || 1;
+    return {
+      x: (clientX - rect.left - root.position.x) / scale,
+      y: (clientY - rect.top - root.position.y) / scale,
+    };
+  };
+
+  return { app, root, toLogical };
 }

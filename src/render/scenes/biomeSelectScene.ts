@@ -11,12 +11,21 @@ import type { GameState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../../sim/state.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, drawSelection, makeText } from '../ui.ts';
+import { hintFor } from '../uiMode.ts';
 import { drawScreenBackground } from './scene.ts';
-import type { Scene } from './scene.ts';
+import type { HitRegion, Scene } from './scene.ts';
 
 const CARD_W = 276;
 const CARD_H = 268;
 const CARD_Y = 172;
+const CARD_GAP = 20;
+
+/** X левого края карточки i — общий расчёт для отрисовки и для тапов. */
+function cardX(index: number): number {
+  const count = BIOME_ORDER.length;
+  const totalW = count * CARD_W + (count - 1) * CARD_GAP;
+  return VIEW_W / 2 - totalW / 2 + index * (CARD_W + CARD_GAP);
+}
 
 interface CardTexts {
   name: Text;
@@ -31,7 +40,7 @@ export class BiomeSelectScene implements Scene {
   private title = makeText('Куда спускаться', H1_STYLE);
   private target = makeText('', style(16, COLORS.text));
   private capacity = makeText('', SMALL_STYLE);
-  private hint = makeText('← → выбор · Enter спуститься · Esc назад', SMALL_STYLE);
+  private hint = makeText('', SMALL_STYLE);
   private cards: CardTexts[] = [];
 
   constructor() {
@@ -63,6 +72,7 @@ export class BiomeSelectScene implements Scene {
     drawScreenBackground(g, time);
 
     centerText(this.title, VIEW_W / 2, 44);
+    this.hint.text = hintFor('← → выбор · Enter спуститься · Esc назад', 'Выбери биом касанием');
     centerText(this.hint, VIEW_W / 2, 496);
 
     // Напоминание о цели забега.
@@ -80,13 +90,10 @@ export class BiomeSelectScene implements Scene {
       centerText(this.capacity, VIEW_W / 2, 128);
     }
 
-    const totalW = BIOME_ORDER.length * CARD_W + (BIOME_ORDER.length - 1) * 20;
-    const startX = VIEW_W / 2 - totalW / 2;
-
     for (let i = 0; i < BIOME_ORDER.length; i++) {
       const def = BIOMES[BIOME_ORDER[i]];
       const card = this.cards[i];
-      const x = startX + i * (CARD_W + 20);
+      const x = cardX(i);
       const selected = state.menuCursor === i;
 
       drawPanel(g, x, CARD_Y, CARD_W, CARD_H, {
@@ -125,5 +132,18 @@ export class BiomeSelectScene implements Scene {
         ly += 19;
       }
     }
+  }
+
+  hitRegions(): HitRegion[] {
+    return BIOME_ORDER.map((biome, i) => ({
+      x: cardX(i),
+      y: CARD_Y,
+      w: CARD_W,
+      h: CARD_H,
+      commands: [
+        { type: 'MENU_SET', index: i } as const,
+        { type: 'SELECT_BIOME', biome } as const,
+      ],
+    }));
   }
 }

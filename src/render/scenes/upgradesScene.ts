@@ -10,12 +10,15 @@ import type { GameState } from '../../core/types.ts';
 import { canAfford, hasUpgrade } from '../../sim/state.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, drawSelection, makeText } from '../ui.ts';
+import { hintFor } from '../uiMode.ts';
 import { drawScreenBackground } from './scene.ts';
-import type { Scene } from './scene.ts';
+import type { HitRegion, Scene } from './scene.ts';
 
 const ROW_W = 620;
 const ROW_H = 56;
 const ROW_Y = 148;
+const ROW_GAP = 12;
+const ROW_X = VIEW_W / 2 - ROW_W / 2;
 
 interface RowTexts {
   name: Text;
@@ -29,7 +32,7 @@ export class UpgradesScene implements Scene {
   private title = makeText('Кузница', H1_STYLE);
   private brands = makeText('', style(17, COLORS.gold));
   private notice = makeText('', style(15, COLORS.ember));
-  private hint = makeText('↑↓ выбор · Enter купить · Esc назад', SMALL_STYLE);
+  private hint = makeText('', SMALL_STYLE);
   private rows: RowTexts[] = [];
 
   constructor() {
@@ -54,13 +57,14 @@ export class UpgradesScene implements Scene {
     centerText(this.title, VIEW_W / 2, 52);
     this.brands.text = `Клейма: ${state.meta.brands}`;
     centerText(this.brands, VIEW_W / 2, 100);
+    this.hint.text = hintFor('↑↓ выбор · Enter купить · Esc назад', 'Тапни по апгрейду, чтобы купить');
     centerText(this.hint, VIEW_W / 2, 496);
 
-    const x = VIEW_W / 2 - ROW_W / 2;
+    const x = ROW_X;
     for (let i = 0; i < UPGRADE_ORDER.length; i++) {
       const def = UPGRADES[UPGRADE_ORDER[i]];
       const row = this.rows[i];
-      const y = ROW_Y + i * (ROW_H + 12);
+      const y = ROW_Y + i * (ROW_H + ROW_GAP);
       const selected = state.menuCursor === i;
       const owned = hasUpgrade(state.meta, def.id);
       const affordable = canAfford(state.meta, def.id);
@@ -86,5 +90,18 @@ export class UpgradesScene implements Scene {
 
     this.notice.text = state.noticeTimer > 0 ? state.notice : '';
     centerText(this.notice, VIEW_W / 2, 462);
+  }
+
+  hitRegions(): HitRegion[] {
+    return UPGRADE_ORDER.map((upgrade, i) => ({
+      x: ROW_X,
+      y: ROW_Y + i * (ROW_H + ROW_GAP),
+      w: ROW_W,
+      h: ROW_H,
+      commands: [
+        { type: 'MENU_SET', index: i } as const,
+        { type: 'BUY_UPGRADE', upgrade } as const,
+      ],
+    }));
   }
 }
