@@ -30,6 +30,17 @@ npm run balance -- --secondary obsidian        # с вторичным мате�
 npm run typecheck
 ```
 
+## Где играть
+
+Сборка публикуется на GitHub Pages автоматически: workflow `.github/workflows/deploy.yml`
+на каждый пуш в `main` проверяет типы, гоняет проверку детерминизма, собирает игру и
+публикует `dist/`. Собранные файлы в репозитории не хранятся.
+
+Чтобы это работало, в настройках репозитория **Pages → Source** должно стоять
+**GitHub Actions**, а не «Deploy from a branch».
+
+Адрес: https://fleuki.github.io/Kuzneca_sudeb/
+
 ## Управление
 
 | Действие | Клавиши |
