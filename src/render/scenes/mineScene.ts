@@ -23,6 +23,7 @@ import type { GameState, MineState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../../sim/state.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawBar, drawPanel, interp, makeText } from '../ui.ts';
+import { hintFor } from '../uiMode.ts';
 import type { Scene } from './scene.ts';
 
 /** Отступ сверху, чтобы уровень не залезал под HUD. */
@@ -257,7 +258,9 @@ export class MineScene implements Scene {
     centerText(this.toast, VIEW_W / 2, VIEW_H - 76);
 
     // Подсказка выхода
-    this.exitPrompt.text = mine.atExit ? 'E — подняться на поверхность' : '';
+    this.exitPrompt.text = mine.atExit
+      ? hintFor('E — подняться на поверхность', 'Жми «Наверх», чтобы подняться')
+      : '';
     if (state.noticeTimer > 0) this.exitPrompt.text = state.notice;
     centerText(this.exitPrompt, VIEW_W / 2, VIEW_H - 46);
   }

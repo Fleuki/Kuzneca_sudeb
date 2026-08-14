@@ -15,7 +15,7 @@ import { MenuScene } from './scenes/menuScene.ts';
 import { MineScene } from './scenes/mineScene.ts';
 import { ResultScene } from './scenes/resultScene.ts';
 import { UpgradesScene } from './scenes/upgradesScene.ts';
-import type { Scene } from './scenes/scene.ts';
+import type { HitRegion, Scene } from './scenes/scene.ts';
 
 export class Renderer {
   private scenes: Record<Phase, Scene>;
@@ -47,5 +47,11 @@ export class Renderer {
       this.current = state.phase;
     }
     this.scenes[state.phase].draw(state, alpha, time);
+  }
+
+  /** Области текущего экрана, по которым можно ткнуть пальцем. */
+  hitRegions(state: GameState): HitRegion[] {
+    const scene = this.scenes[state.phase];
+    return scene.hitRegions ? scene.hitRegions(state) : [];
   }
 }

@@ -11,8 +11,9 @@ import { BOSSES, VIEW_W } from '../../core/constants.ts';
 import type { GameState } from '../../core/types.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, makeText } from '../ui.ts';
-import { drawScreenBackground } from './scene.ts';
-import type { Scene } from './scene.ts';
+import { hintFor } from '../uiMode.ts';
+import { drawScreenBackground, fullScreenRegion } from './scene.ts';
+import type { HitRegion, Scene } from './scene.ts';
 
 export class ResultScene implements Scene {
   container = new Container();
@@ -22,7 +23,7 @@ export class ResultScene implements Scene {
   private hint = makeText('', style(17, COLORS.emberHot, { wordWrap: true, wordWrapWidth: 620, align: 'center', lineHeight: 25 }));
   private stats = makeText('', style(15, COLORS.textDim));
   private reward = makeText('', style(16, COLORS.gold));
-  private prompt = makeText('Enter — вернуться в кузницу', SMALL_STYLE);
+  private prompt = makeText('', SMALL_STYLE);
 
   constructor() {
     this.container.addChild(this.g, this.banner, this.bossLine, this.hint, this.stats, this.reward, this.prompt);
@@ -64,6 +65,12 @@ export class ResultScene implements Scene {
     this.reward.style.fill = r.won ? COLORS.gold : COLORS.textDim;
     centerText(this.reward, VIEW_W / 2, 366);
 
+    this.prompt.text = hintFor('Enter — вернуться в кузницу', 'Тапни, чтобы вернуться в кузницу');
     centerText(this.prompt, VIEW_W / 2, 470);
+  }
+
+  // Экран итога только читают — тап в любое место возвращает в кузницу.
+  hitRegions(): HitRegion[] {
+    return [fullScreenRegion({ type: 'RESULT_CONTINUE' })];
   }
 }

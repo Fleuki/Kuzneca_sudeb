@@ -11,9 +11,11 @@ import { dispatch, tick } from './sim/game.ts';
 import { createGameState } from './sim/state.ts';
 import type { GameState, Phase } from './core/types.ts';
 import { Keyboard } from './input/keyboard.ts';
+import { TouchControls, mergeInput } from './input/touch.ts';
 import { loadGame, saveGame } from './persist/save.ts';
 import { createViewport } from './render/app.ts';
 import { Renderer } from './render/renderer.ts';
+import { setTouchMode } from './render/uiMode.ts';
 
 /** Как часто перезаписывать сейв во время игры, в секундах. */
 const AUTOSAVE_INTERVAL = 5;
@@ -22,7 +24,7 @@ async function main(): Promise<void> {
   const mount = document.getElementById('game');
   if (!mount) throw new Error('Не найден контейнер #game');
 
-  const { app, root } = await createViewport(mount);
+  const { app, root, toLogical } = await createViewport(mount);
   const renderer = new Renderer(root);
 
   // Продолжаем прерванный забег, если он был: §2 требует возможности
@@ -31,6 +33,13 @@ async function main(): Promise<void> {
 
   const keyboard = new Keyboard();
   keyboard.attach();
+
+  // Сенсорный слой отдаёт то же самое, что и клавиатура: InputState и команды.
+  const touch = new TouchControls({
+    toLogical,
+    regions: () => renderer.hitRegions(state),
+  });
+  touch.mount(mount);
 
   let accumulator = 0;
   let last = performance.now() / 1000;
@@ -50,7 +59,8 @@ async function main(): Promise<void> {
 
     // Команды меню — до симуляции, чтобы смена фазы применилась в этом же кадре.
     for (const cmd of keyboard.drainCommands(state.phase)) dispatch(state, cmd);
-    dispatch(state, { type: 'INPUT', input: keyboard.snapshot() });
+    for (const cmd of touch.drainCommands(state.phase)) dispatch(state, cmd);
+    dispatch(state, { type: 'INPUT', input: mergeInput(keyboard.snapshot(), touch.snapshot()) });
 
     let ticks = 0;
     while (accumulator >= DT && ticks < 8) {
@@ -61,10 +71,18 @@ async function main(): Promise<void> {
 
     // Фронты нажатий съедаются, только если тик реально прошёл, —
     // иначе нажатие потерялось бы в пропущенном кадре.
-    if (ticks > 0) keyboard.consumeEdges();
+    if (ticks > 0) {
+      keyboard.consumeEdges();
+      touch.consumeEdges();
+    }
+
+    // Режим ввода выставляем до отрисовки: от него зависят подсказки на экране.
+    setTouchMode(touch.enabled);
 
     const alpha = accumulator / DT;
     renderer.render(state, alpha, time);
+    // Набор экранных кнопок зависит от фазы, поэтому обновляем его каждый кадр.
+    touch.update(state);
 
     // Сохранение: на каждом переходе фазы и раз в несколько секунд.
     sinceSave += frame;

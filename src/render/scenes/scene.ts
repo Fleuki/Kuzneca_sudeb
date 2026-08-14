@@ -3,9 +3,26 @@
  */
 
 import { Container, Graphics } from 'pixi.js';
+import type { Command } from '../../core/commands.ts';
 import type { GameState } from '../../core/types.ts';
 import { VIEW_H, VIEW_W } from '../../core/constants.ts';
 import { COLORS } from '../theme.ts';
+
+/**
+ * Область экрана, по которой можно ткнуть пальцем.
+ *
+ * Координаты — логические (960×540), те же, в которых сцена рисует. Так разметка
+ * описана ровно один раз: сцена и рисует кнопку, и говорит, во что превращается
+ * тап по ней. Слой ввода переводит координаты касания в логические и шлёт команды,
+ * то есть сенсорный ввод идёт тем же путём, что и клавиатура (§11).
+ */
+export interface HitRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  commands: Command[];
+}
 
 export interface Scene {
   container: Container;
@@ -14,6 +31,17 @@ export interface Scene {
    * @param time  время с запуска в секундах — только для косметики
    */
   draw(state: GameState, alpha: number, time: number): void;
+
+  /**
+   * Куда можно тыкать пальцем на этом экране. Не реализуется сценами,
+   * где управление идёт кнопками (шахта, бой, выбор рецепта).
+   */
+  hitRegions?(state: GameState): HitRegion[];
+}
+
+/** Регион во весь экран — для экранов, где годится тап в любое место. */
+export function fullScreenRegion(...commands: Command[]): HitRegion {
+  return { x: 0, y: 0, w: VIEW_W, h: VIEW_H, commands };
 }
 
 /** Тёмный фон с виньеткой и тёплым отблеском горна снизу. */

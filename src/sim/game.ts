@@ -136,6 +136,10 @@ export function dispatch(state: GameState, cmd: Command): void {
       menuMove(state, cmd.delta);
       break;
 
+    case 'MENU_SET':
+      state.menuCursor = Math.max(0, Math.min(menuLength(state) - 1, cmd.index));
+      break;
+
     case 'MENU_ROW':
       if (state.forge && state.forge.stage === 'select') {
         state.forge.cursorRow = (state.forge.cursorRow + cmd.delta + 3) % 3;

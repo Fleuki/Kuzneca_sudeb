@@ -23,16 +23,127 @@
         font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
       }
       #game {
+        position: relative;
         width: 100%;
         height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
+        /* Без этого браузер на телефоне пытается скроллить и зумить страницу
+           вместо того, чтобы отдать касания игре. */
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
       }
       #game canvas {
         display: block;
         image-rendering: pixelated;
       }
+      /* ---- Сенсорное управление ---------------------------------------- */
+
+      .kz-touch {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      /* Слой тапов: ловит выбор пунктов меню пальцем и мышью. */
+      .kz-tap {
+        position: absolute;
+        inset: 0;
+        pointer-events: auto;
+      }
+      .kz-pads {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .kz-btn {
+        position: absolute;
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #e6e0d8;
+        background: rgba(22, 19, 26, 0.62);
+        border: 2px solid rgba(200, 162, 74, 0.55);
+        border-radius: 50%;
+        width: 72px;
+        height: 72px;
+        font-size: 26px;
+        line-height: 1;
+        backdrop-filter: blur(2px);
+        transition: background 0.08s, transform 0.08s;
+      }
+      /* display: flex у .kz-btn перебивает браузерное правило [hidden]{display:none},
+         поэтому скрытие приходится задавать явно и с большей специфичностью. */
+      .kz-btn[hidden] {
+        display: none;
+      }
+      .kz-btn.kz-pressed {
+        background: rgba(224, 122, 53, 0.55);
+        border-color: #ffd27a;
+        transform: scale(0.94);
+      }
+      .kz-wide,
+      .kz-small {
+        border-radius: 34px;
+        width: auto;
+        height: 60px;
+        padding: 0 26px;
+        font-size: 17px;
+        white-space: nowrap;
+      }
+      .kz-small {
+        height: 46px;
+        padding: 0 20px;
+        font-size: 15px;
+      }
+
+      /* Отступы считаются от безопасной зоны: у телефонов с вырезом
+         нижняя кромка экрана занята системной полосой. */
+      .kz-left   { left:  calc(20px + env(safe-area-inset-left));  bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-right  { left:  calc(104px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-attack { right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-jump   { right: calc(104px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-dash   { right: calc(20px + env(safe-area-inset-right)); bottom: calc(104px + env(safe-area-inset-bottom)); }
+      .kz-exit   { left: 50%; transform: translateX(-50%); bottom: calc(104px + env(safe-area-inset-bottom)); }
+      .kz-exit.kz-pressed { transform: translateX(-50%) scale(0.96); }
+
+      .kz-prev   { left:  calc(20px + env(safe-area-inset-left));  bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-next   { left:  calc(104px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-up     { right: calc(200px + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); }
+      .kz-down   { right: calc(200px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-ok     { right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-back   { left:  calc(20px + env(safe-area-inset-left));  top: calc(20px + env(safe-area-inset-top)); }
+
+      /* Игра рассчитана на 16:9. В портрете от неё остаётся узкая полоска,
+         поэтому просим повернуть телефон, а не показываем нечитаемый экран. */
+      #rotate {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 14px;
+        background: #0a0908;
+        color: #c8a24a;
+        font-size: 18px;
+        letter-spacing: 0.12em;
+        text-align: center;
+        padding: 24px;
+        z-index: 10;
+      }
+      #rotate svg { width: 64px; height: 64px; }
+      @media (orientation: portrait) and (pointer: coarse) {
+        #rotate { display: flex; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .kz-btn { transition: none; }
+      }
+
       #boot {
         position: absolute;
         inset: 0;
@@ -54,6 +165,14 @@
   <body>
     <div id="game"></div>
     <div id="boot">Разжигаем горн…</div>
+    <div id="rotate">
+      <svg viewBox="0 0 48 48" fill="none" stroke="#c8a24a" stroke-width="2.5" aria-hidden="true">
+        <rect x="16" y="4" width="16" height="28" rx="3" />
+        <path d="M10 36a14 14 0 0 0 28 0" stroke-dasharray="3 3" />
+        <path d="M34 32l4 4-4 4" />
+      </svg>
+      Поверни телефон горизонтально
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
