@@ -3,8 +3,8 @@
 # В git лежит только исходный код: собранный бандл создаётся здесь на каждый
 # пуш в main и уезжает прямо в Pages, минуя репозиторий.
 #
-# Требует, чтобы в настройках репозитория Pages → Source было выбрано
-# «GitHub Actions», а не «Deploy from a branch».
+# Источник публикации переключается на «GitHub Actions» самим workflow
+# (enablement: true у configure-pages), руками в настройках лезть не нужно.
 
 name: Публикация на GitHub Pages
 
@@ -48,7 +48,12 @@ jobs:
       - name: Сборка
         run: npm run build
 
+      # enablement: true переводит Pages с публикации из ветки на публикацию
+      # из Actions. Без этого сборка из main:/docs продолжает перебивать наш
+      # деплой, а в той папке лежит только дизайн-документ — отсюда 404 в корне.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
