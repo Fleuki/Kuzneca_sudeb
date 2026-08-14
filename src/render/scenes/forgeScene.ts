@@ -22,7 +22,7 @@ import {
 } from '../../core/constants.ts';
 import type { Command } from '../../core/commands.ts';
 import type { ForgeState, GameState, MaterialId, Weapon } from '../../core/types.ts';
-import { durabilityCost } from '../../sim/state.ts';
+import { backpackCapacity, backpackTotal, canForgeAnything, durabilityCost } from '../../sim/state.ts';
 import { requiredAmount } from '../../sim/forge/step.ts';
 import { buildWeapon, weaponDps, weaponHits } from '../../sim/forge/weapon.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
@@ -60,6 +60,7 @@ export class ForgeScene implements Scene {
   private recipe = makeText('', SMALL_STYLE);
   private notice = makeText('', style(15, COLORS.ember));
   private hint = makeText('', SMALL_STYLE);
+  private warning = makeText('', style(15, COLORS.ember, { wordWrap: true, wordWrapWidth: 700, align: 'center' }));
 
   // Карточка предпросмотра / готового оружия
   private previewTitle = makeText('', style(19, COLORS.gold));
@@ -107,6 +108,7 @@ export class ForgeScene implements Scene {
       this.resultLabel,
       this.minigameHint,
       this.notice,
+      this.warning,
       this.hint,
     );
   }
@@ -127,6 +129,7 @@ export class ForgeScene implements Scene {
     if (forge.stage === 'select') this.drawSelect(state, forge, g);
     else if (forge.stage === 'minigame') this.drawMinigame(forge, g);
     else this.drawDone(forge, g);
+    this.warning.visible = forge.stage === 'select';
 
     this.notice.text = state.noticeTimer > 0 ? state.notice : '';
     centerText(this.notice, VIEW_W / 2, VIEW_H - 74);
@@ -231,8 +234,23 @@ export class ForgeScene implements Scene {
       this.strikesNote.text = '';
     }
 
+    // Тупик должен быть виден и, главное, иметь выход прямо на этом экране.
+    const stuck = !canForgeAnything(state.meta);
+    const full = backpackTotal(state.meta.backpack) >= backpackCapacity(state.meta);
+
+    if (stuck) {
+      this.warning.text = full
+        ? 'Ни одного материала не хватает на оружие, а рюкзак полон — выброси лишнее и спустись ещё раз'
+        : 'Ни одного материала не хватает на оружие — спустись в шахту ещё раз';
+      centerText(this.warning, VIEW_W / 2, VIEW_H - 102);
+    } else {
+      this.warning.text = '';
+    }
+
     this.hint.text = hintFor(
-      '↑↓ строка · ← → значение · Enter ковать · Esc бросить забег',
+      full
+        ? 'R — спуститься ещё раз · Backspace — выбросить выбранное · Enter — ковать'
+        : 'R — спуститься ещё раз · ↑↓ строка · ← → значение · Enter — ковать',
       'Тапни по краям строки, чтобы листать значение',
     );
   }

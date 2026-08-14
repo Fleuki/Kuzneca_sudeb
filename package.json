@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "balance": "tsx tools/balance.ts",
-    "determinism": "tsx tools/determinism.ts"
+    "determinism": "tsx tools/determinism.ts",
+    "mine-check": "tsx tools/mine-check.ts",
+    "deadlock-check": "tsx tools/deadlock-check.ts"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"
