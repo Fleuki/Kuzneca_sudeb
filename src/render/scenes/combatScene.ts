@@ -17,6 +17,8 @@ import {
   VIEW_W,
 } from '../../core/constants.ts';
 import { ITEMS } from '../../core/items.ts';
+import { Atmosphere } from '../atmosphere.ts';
+import { BOSS_ATMOSPHERE } from '../themes.ts';
 import type { BossState, CombatState, GameState, Hazard, Impact, Weapon } from '../../core/types.ts';
 import { hazardRect } from '../../sim/combat/step.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
@@ -44,6 +46,8 @@ interface Particle {
 export class CombatScene implements Scene {
   container = new Container();
   private world = new Container();
+  /** Задник: параллакс и взвесь. Живёт отдельно от мира — он и трясётся иначе. */
+  private atmosphere = new Atmosphere();
   private arenaG = new Graphics();
   private actorsG = new Graphics();
   private fxG = new Graphics();
@@ -67,7 +71,7 @@ export class CombatScene implements Scene {
 
   constructor() {
     this.world.addChild(this.arenaG, this.actorsG, this.fxG);
-    this.container.addChild(this.world, this.hudG);
+    this.container.addChild(this.atmosphere.container, this.world, this.hudG);
     this.container.addChild(
       this.bossName,
       this.bossPhase,
@@ -106,7 +110,14 @@ export class CombatScene implements Scene {
     this.spawnEffects(combat, alpha);
     this.stepParticles(frameDt);
 
-    this.drawArena(time);
+    // Задник у каждого босса свой: у Гарпии сыплется пепел, у Бездны воздух
+    // светится снизу. Игрок должен понимать, куда пришёл, ещё до первой атаки.
+    this.atmosphere.setTheme(`boss:${combat.boss.id}`, BOSS_ATMOSPHERE[combat.boss.id]);
+    // Микро-параллакс: задник чуть ведёт за игроком, хотя арена не прокручивается.
+    // Без этого статичный экран читается как нарисованная задняя стена.
+    this.atmosphere.draw((combat.player.x - VIEW_W / 2) * 0.06, frameDt, time);
+
+    this.drawArena();
     this.drawActors(combat, state.run?.weapon ?? null, alpha, time);
     this.drawEffects(combat, time);
     this.drawHud(state, combat);
@@ -234,22 +245,11 @@ export class CombatScene implements Scene {
 
   // -------------------------------------------------------------------------
 
-  private drawArena(time: number): void {
+  private drawArena(): void {
     const g = this.arenaG;
     g.clear();
 
-    g.rect(0, 0, VIEW_W, VIEW_H).fill(COLORS.bg);
-
-    // Дальний план: колонны, чтобы арена не выглядела пустой коробкой.
-    for (let i = 0; i < 5; i++) {
-      const x = 80 + i * 200;
-      g.rect(x, 90, 44, ARENA.groundY - 90).fill({ color: 0x191521, alpha: 0.9 });
-      g.rect(x, 90, 44, 10).fill({ color: 0x241f2e, alpha: 0.9 });
-    }
-
-    // Зарево снизу.
-    const glow = 0.06 + 0.02 * Math.sin(time * 1.2);
-    g.rect(0, ARENA.groundY - 120, VIEW_W, 120).fill({ color: COLORS.ember, alpha: glow });
+    // Фон и дальние планы рисует Atmosphere — здесь только то, по чему ходят.
 
     // Пол
     g.rect(0, ARENA.groundY, VIEW_W, VIEW_H - ARENA.groundY).fill(0x241f28);

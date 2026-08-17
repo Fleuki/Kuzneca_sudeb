@@ -9,8 +9,8 @@ import type { GameState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal, ownedItems } from '../../sim/state.ts';
 import { BODY_STYLE, COLORS, H2_STYLE, SMALL_STYLE, TITLE_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, drawSelection, makeText } from '../ui.ts';
-import { hintFor } from '../uiMode.ts';
-import { drawScreenBackground } from './scene.ts';
+import { hintFor, isMuted } from '../uiMode.ts';
+import { drawScreenBackground, useScreenAtmosphere } from './scene.ts';
 import type { HitRegion, Scene } from './scene.ts';
 
 const OPTIONS = ['Новый забег', 'Кузница'];
@@ -48,7 +48,8 @@ export class MenuScene implements Scene {
   draw(state: GameState, _alpha: number, time: number): void {
     const g = this.g;
     g.clear();
-    drawScreenBackground(g, time);
+    drawScreenBackground(g);
+    useScreenAtmosphere(this.container, time);
 
     centerText(this.title, VIEW_W / 2, 96);
     centerText(this.tagline, VIEW_W / 2, 152);
@@ -93,7 +94,9 @@ export class MenuScene implements Scene {
     this.stats.text = `Клейма: ${state.meta.brands}   ·   Забегов: ${state.meta.runsStarted}   ·   Побед: ${state.meta.runsWon}`;
     centerText(this.stats, VIEW_W / 2, 178);
 
-    this.hint.text = hintFor('↑↓ выбор · Enter подтвердить', 'Выбери пункт касанием');
+    // Про звук игрок иначе не узнает: клавиша одна и нигде больше не показана.
+    const sound = isMuted() ? 'M — включить звук' : 'M — выключить звук';
+    this.hint.text = hintFor(`↑↓ выбор · Enter подтвердить · ${sound}`, 'Выбери пункт касанием');
     this.notice.text = state.noticeTimer > 0 ? state.notice : '';
     centerText(this.notice, VIEW_W / 2, 476);
     centerText(this.hint, VIEW_W / 2, 502);

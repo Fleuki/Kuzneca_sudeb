@@ -37,6 +37,7 @@ export function createForgeState(state: GameState): ForgeState {
     slotB: null,
     lastCraft: null,
     craftFlash: 0,
+    craftCount: 0,
 
     shape: 'heavy',
     base: bestBase(state),

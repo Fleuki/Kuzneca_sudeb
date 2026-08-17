@@ -13,9 +13,11 @@ import type { GameState, Phase } from './core/types.ts';
 import { Keyboard } from './input/keyboard.ts';
 import { TouchControls, mergeInput } from './input/touch.ts';
 import { loadGame, saveGame } from './persist/save.ts';
+import { AudioReactor } from './audio/reactor.ts';
+import { Sfx } from './audio/sfx.ts';
 import { createViewport } from './render/app.ts';
 import { Renderer } from './render/renderer.ts';
-import { setTouchMode } from './render/uiMode.ts';
+import { setMuted, setTouchMode } from './render/uiMode.ts';
 
 /** Как часто перезаписывать сейв во время игры, в секундах. */
 const AUTOSAVE_INTERVAL = 5;
@@ -40,6 +42,22 @@ async function main(): Promise<void> {
     regions: () => renderer.hitRegions(state),
   });
   touch.mount(mount);
+
+  // Звук: контекст создаётся только после первого жеста — так требует браузер.
+  // Симуляция про него не знает, реактор просто читает состояние (§11).
+  const sfx = new Sfx();
+  const audio = new AudioReactor(sfx);
+  const unlockAudio = (): void => sfx.unlock();
+  window.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
+  window.addEventListener('touchstart', unlockAudio, { passive: true });
+
+  // Заглушка звука живёт вне состояния: она не должна попадать ни в сейв,
+  // ни в реплей — иначе один и тот же сид звучал бы по-разному и играл бы иначе.
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyM') setMuted(sfx.toggleMute());
+  });
+  setMuted(sfx.isMuted);
 
   let accumulator = 0;
   let last = performance.now() / 1000;
@@ -81,6 +99,8 @@ async function main(): Promise<void> {
 
     const alpha = accumulator / DT;
     renderer.render(state, alpha, time);
+    // Звук — после отрисовки: он такой же наблюдатель состояния, как и рендер.
+    audio.update(state);
     // Набор экранных кнопок зависит от фазы, поэтому обновляем его каждый кадр.
     touch.update(state);
 

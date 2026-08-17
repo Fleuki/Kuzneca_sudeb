@@ -39,7 +39,7 @@ import { buildWeapon, weaponDps, weaponHits } from '../../sim/forge/weapon.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawBar, drawPanel, drawSelection, makeText } from '../ui.ts';
 import { hintFor } from '../uiMode.ts';
-import { drawScreenBackground, fullScreenRegion } from './scene.ts';
+import { drawScreenBackground, fullScreenRegion, useScreenAtmosphere } from './scene.ts';
 import type { HitRegion, Scene } from './scene.ts';
 
 // --- Разметка ---------------------------------------------------------------
@@ -209,7 +209,8 @@ export class ForgeScene implements Scene {
 
     const g = this.g;
     g.clear();
-    drawScreenBackground(g, time);
+    drawScreenBackground(g);
+    useScreenAtmosphere(this.container, time);
 
     centerText(this.title, VIEW_W / 2, 22);
 

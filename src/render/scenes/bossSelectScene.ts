@@ -14,7 +14,7 @@ import { isDefeated } from '../../sim/state.ts';
 import { COLORS, H1_STYLE, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, drawSelection, makeText } from '../ui.ts';
 import { hintFor } from '../uiMode.ts';
-import { drawScreenBackground } from './scene.ts';
+import { drawScreenBackground, useScreenAtmosphere } from './scene.ts';
 import type { HitRegion, Scene } from './scene.ts';
 
 const CARD_W = 276;
@@ -71,7 +71,8 @@ export class BossSelectScene implements Scene {
   draw(state: GameState, _alpha: number, time: number): void {
     const g = this.g;
     g.clear();
-    drawScreenBackground(g, time);
+    drawScreenBackground(g);
+    useScreenAtmosphere(this.container, time);
 
     centerText(this.title, VIEW_W / 2, 52);
     centerText(this.subtitle, VIEW_W / 2, 90);

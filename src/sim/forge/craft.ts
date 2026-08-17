@@ -73,6 +73,7 @@ export function craft(state: GameState): ItemId | null {
   markKnown(state.meta, recipe.out);
   forge.lastCraft = recipe.out;
   forge.craftFlash = 0.6;
+  forge.craftCount += 1;
 
   // Слоты не чистим, пока хватает материала: одинаковые соединения игрок делает
   // подряд, и заново набирать пару на каждый слиток — лишняя работа пальцами.

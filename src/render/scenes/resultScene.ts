@@ -12,7 +12,7 @@ import type { GameState } from '../../core/types.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawPanel, makeText } from '../ui.ts';
 import { hintFor } from '../uiMode.ts';
-import { drawScreenBackground, fullScreenRegion } from './scene.ts';
+import { drawScreenBackground, fullScreenRegion, useScreenAtmosphere } from './scene.ts';
 import type { HitRegion, Scene } from './scene.ts';
 
 export class ResultScene implements Scene {
@@ -32,7 +32,8 @@ export class ResultScene implements Scene {
   draw(state: GameState, _alpha: number, time: number): void {
     const g = this.g;
     g.clear();
-    drawScreenBackground(g, time);
+    drawScreenBackground(g);
+    useScreenAtmosphere(this.container, time);
 
     const r = state.result;
     if (!r) return;

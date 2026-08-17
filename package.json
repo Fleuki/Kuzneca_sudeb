@@ -14,7 +14,8 @@
     "mine-check": "tsx tools/mine-check.ts",
     "deadlock-check": "tsx tools/deadlock-check.ts",
     "input-check": "tsx tools/input-check.ts",
-    "feel-check": "tsx tools/feel-check.ts"
+    "feel-check": "tsx tools/feel-check.ts",
+    "audio-check": "tsx tools/audio-check.ts"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

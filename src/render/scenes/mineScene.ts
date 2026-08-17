@@ -18,6 +18,8 @@ import {
   VIEW_W,
 } from '../../core/constants.ts';
 import { ITEMS, ORE_ITEMS } from '../../core/items.ts';
+import { Atmosphere } from '../atmosphere.ts';
+import { BIOME_ATMOSPHERE } from '../themes.ts';
 import { TILE_POISON, TILE_SOLID, TILE_SPIKE } from '../../core/types.ts';
 import type { GameState, MineState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../../sim/state.ts';
@@ -32,6 +34,8 @@ const WORLD_Y = 62;
 export class MineScene implements Scene {
   container = new Container();
   private world = new Container();
+  /** Задник живёт вне мира: он двигается сам, со своим параллаксом. */
+  private atmosphere = new Atmosphere();
   private tilesG = new Graphics();
   private entitiesG = new Graphics();
   private hudG = new Graphics();
@@ -60,7 +64,8 @@ export class MineScene implements Scene {
 
   constructor() {
     this.world.addChild(this.tilesG, this.entitiesG);
-    this.container.addChild(this.world, this.hudG);
+    // Порядок важен: задник, потом мир, потом HUD.
+    this.container.addChild(this.atmosphere.container, this.world, this.hudG);
     this.container.addChild(this.hpLabel, this.packLabel, this.targetLabel, this.biomeLabel);
     for (let i = 0; i < ORE_ITEMS.length; i++) {
       const t = makeText('', style(13, COLORS.textDim));
@@ -91,6 +96,10 @@ export class MineScene implements Scene {
     const worldW = mine.width * TILE;
     let camX = px - VIEW_W / 2;
     camX = Math.max(0, Math.min(worldW - VIEW_W, camX));
+
+    // Задник: биом должен читаться воздухом, а не только цветом камня.
+    this.atmosphere.setTheme(`mine:${run.biome}`, BIOME_ATMOSPHERE[run.biome]);
+    this.atmosphere.draw(camX, frameDt, time);
     // Тряска от удара киркой — короткая и мелкая: это порода, а не босс.
     const sx = Math.sin(time * 94) * this.shake * 4;
     const sy = Math.cos(time * 77) * this.shake * 3;
@@ -156,8 +165,9 @@ export class MineScene implements Scene {
     const def = BIOMES[biome];
     g.clear();
 
-    // Фон пещеры.
-    g.rect(0, 0, mine.width * TILE, mine.height * TILE).fill(def.bgColor);
+    // Фон пещеры — полупрозрачный: сквозь него просвечивают дальние планы
+    // атмосферного слоя. Непрозрачная заливка съедала бы весь параллакс.
+    g.rect(0, 0, mine.width * TILE, mine.height * TILE).fill({ color: def.bgColor, alpha: 0.72 });
 
     for (let y = 0; y < mine.height; y++) {
       for (let x = 0; x < mine.width; x++) {
@@ -212,6 +222,12 @@ export class MineScene implements Scene {
       const flash = ore.hitFlash > 0;
       const fill = flash ? 0xffffff : def.color;
       const size = ore.size === 'lode' ? 24 : 15;
+
+      // Ореол: жила — единственный источник света в штольне, и именно на неё
+      // игрок смотрит. Дышит медленно, чтобы не спорить с искрами слабого места.
+      const halo = 0.9 + 0.1 * Math.sin(time * 1.8 + ore.id);
+      g.circle(ore.x, ore.y, size * 1.35 * halo).fill({ color: def.color, alpha: 0.045 });
+      g.circle(ore.x, ore.y, size * 0.85 * halo).fill({ color: def.color, alpha: 0.07 });
 
       if (ore.size === 'nugget') {
         const r = 11;
