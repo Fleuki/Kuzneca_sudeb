@@ -94,5 +94,14 @@ function migrate(state: GameState): GameState {
   if (typeof state.meta.runsWon !== 'number') state.meta.runsWon = 0;
   if (typeof state.notice !== 'string') state.notice = '';
   if (typeof state.noticeTimer !== 'number') state.noticeTimer = 0;
+
+  // Поля, добавленные после выхода версии сейва. Без этого арифметика над
+  // undefined даёт NaN, и, например, прыжок ломается насовсем.
+  if (state.mine && typeof state.mine.player.jumpCutLock !== 'number') {
+    state.mine.player.jumpCutLock = 0;
+  }
+  if (state.combat && typeof state.combat.player.jumpCutLock !== 'number') {
+    state.combat.player.jumpCutLock = 0;
+  }
   return state;
 }

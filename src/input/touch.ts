@@ -12,10 +12,14 @@
  */
 
 import type { Command } from '../core/commands.ts';
+import { PLAYER } from '../core/constants.ts';
 import { emptyInput } from '../core/types.ts';
 import type { GameState, InputState, Phase } from '../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../sim/state.ts';
 import type { HitRegion } from '../render/scenes/scene.ts';
+
+/** Запас вокруг кнопки, в котором касание всё ещё считается попаданием. */
+const TOUCH_SLOP = 20;
 
 /** Действия, которые удерживаются пальцем. */
 type HoldAction = 'left' | 'right' | 'jump' | 'attack' | 'dash';
@@ -138,6 +142,8 @@ export class TouchControls {
   private touches = new Map<number, ButtonId | null>();
   private held = new Set<HoldAction>();
   private edges = new Set<HoldAction>();
+  /** До какого момента прыжок считается зажатым, даже если палец уже убрали. */
+  private jumpHeldUntil = 0;
   private queue: Command[] = [];
   private visible = new Set<ButtonId>();
   private active = false;
@@ -163,11 +169,13 @@ export class TouchControls {
       el.className = def.cls;
       el.textContent = def.label;
       el.hidden = true;
-      el.addEventListener('touchstart', this.onTouchStart, { passive: false });
       this.pads.appendChild(el);
       this.elements.set(def.id, el);
     }
 
+    // Слушаем на окне, а не на самих кнопках: палец может начать движение мимо
+    // кнопки и съехать на неё, и это должно считаться нажатием.
+    window.addEventListener('touchstart', this.onTouchStart, { passive: false });
     window.addEventListener('touchmove', this.onTouchMove, { passive: false });
     window.addEventListener('touchend', this.onTouchEnd);
     window.addEventListener('touchcancel', this.onTouchEnd);
@@ -210,22 +218,46 @@ export class TouchControls {
   // Касания
   // -------------------------------------------------------------------------
 
+  /**
+   * Кнопка под касанием.
+   *
+   * Вокруг каждой кнопки есть запас: попасть точно в круг пальцем, не глядя на
+   * экран, невозможно. Из-за запаса зоны соседних кнопок пересекаются, поэтому
+   * выбирается не первая подходящая, а ближайшая по центру — иначе на границе
+   * срабатывала бы та, что раньше в списке.
+   */
   private buttonAt(x: number, y: number): ButtonId | null {
+    let best: ButtonId | null = null;
+    let bestDist = Infinity;
+
     for (const [id, el] of this.elements) {
       if (el.hidden) continue;
       const r = el.getBoundingClientRect();
-      // Небольшой запас: попасть точно в край круга пальцем тяжело.
-      if (x >= r.left - 6 && x <= r.right + 6 && y >= r.top - 6 && y <= r.bottom + 6) return id;
+      if (x < r.left - TOUCH_SLOP || x > r.right + TOUCH_SLOP) continue;
+      if (y < r.top - TOUCH_SLOP || y > r.bottom + TOUCH_SLOP) continue;
+
+      const dx = x - (r.left + r.width / 2);
+      const dy = y - (r.top + r.height / 2);
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = id;
+      }
     }
-    return null;
+    return best;
   }
 
   private onTouchStart = (e: TouchEvent): void => {
     this.enable();
-    e.preventDefault();
+    let onButton = false;
     for (const t of Array.from(e.changedTouches)) {
-      this.touches.set(t.identifier, this.buttonAt(t.clientX, t.clientY));
+      const id = this.buttonAt(t.clientX, t.clientY);
+      if (id !== null) onButton = true;
+      this.touches.set(t.identifier, id);
     }
+    // Гасим жест браузера только если действительно нажали кнопку: тапы по
+    // карточкам меню должны остаться обычными касаниями.
+    if (onButton) e.preventDefault();
     this.recompute();
   };
 
@@ -265,7 +297,11 @@ export class TouchControls {
     }
 
     for (const action of next) {
-      if (!this.held.has(action)) this.edges.add(action);
+      if (this.held.has(action)) continue;
+      this.edges.add(action);
+      // Тап по прыжку удерживаем до вершины: иначе гашение высоты срежет прыжок
+      // и на ступеньку в шахте будет не забраться.
+      if (action === 'jump') this.jumpHeldUntil = Date.now() + PLAYER.touchJumpHold * 1000;
     }
 
     // Одноразовые кнопки срабатывают в момент появления касания на них.
@@ -336,7 +372,7 @@ export class TouchControls {
     const input = emptyInput();
     input.left = this.held.has('left');
     input.right = this.held.has('right');
-    input.jump = this.held.has('jump');
+    input.jump = this.held.has('jump') || Date.now() < this.jumpHeldUntil;
     input.jumpPressed = this.edges.has('jump');
     input.attack = this.held.has('attack');
     input.attackPressed = this.edges.has('attack');
@@ -363,8 +399,13 @@ export class TouchControls {
     if (!sameSet(visible, this.visible)) {
       for (const [id, el] of this.elements) el.hidden = !visible.has(id);
       this.visible = visible;
-      // Скрытая кнопка не должна остаться «нажатой».
+      // Скрытая кнопка не должна остаться «нажатой»: иначе смена фазы под
+      // прижатым пальцем оставляла бы персонажа бегущим в новую фазу.
       for (const [id] of this.elements) if (!visible.has(id)) this.pressedLast.delete(id);
+      for (const [touchId, buttonId] of this.touches) {
+        if (buttonId !== null && !visible.has(buttonId)) this.touches.set(touchId, null);
+      }
+      this.recompute();
     }
 
     for (const [id, label] of Object.entries(labels) as [ButtonId, string][]) {

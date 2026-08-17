@@ -68,9 +68,9 @@
         background: rgba(22, 19, 26, 0.62);
         border: 2px solid rgba(200, 162, 74, 0.55);
         border-radius: 50%;
-        width: 72px;
-        height: 72px;
-        font-size: 26px;
+        width: 88px;
+        height: 88px;
+        font-size: 30px;
         line-height: 1;
         backdrop-filter: blur(2px);
         transition: background 0.08s, transform 0.08s;
@@ -102,12 +102,14 @@
 
       /* Отступы считаются от безопасной зоны: у телефонов с вырезом
          нижняя кромка экрана занята системной полосой. */
+      /* Между кнопками — полноценный зазор: раньше он был 12 px, и палец
+         постоянно попадал в щель между «влево» и «вправо». */
       .kz-left   { left:  calc(20px + env(safe-area-inset-left));  bottom: calc(20px + env(safe-area-inset-bottom)); }
-      .kz-right  { left:  calc(104px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-right  { left:  calc(132px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
       .kz-attack { right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
-      .kz-jump   { right: calc(104px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
-      .kz-dash   { right: calc(20px + env(safe-area-inset-right)); bottom: calc(104px + env(safe-area-inset-bottom)); }
-      .kz-exit   { left: 50%; transform: translateX(-50%); bottom: calc(104px + env(safe-area-inset-bottom)); }
+      .kz-jump   { right: calc(132px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+      .kz-dash   { right: calc(20px + env(safe-area-inset-right)); bottom: calc(126px + env(safe-area-inset-bottom)); }
+      .kz-exit   { left: 50%; transform: translateX(-50%); bottom: calc(126px + env(safe-area-inset-bottom)); }
       .kz-exit.kz-pressed { transform: translateX(-50%) scale(0.96); }
 
       .kz-prev   { left:  calc(20px + env(safe-area-inset-left));  bottom: calc(20px + env(safe-area-inset-bottom)); }

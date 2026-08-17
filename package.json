@@ -12,7 +12,8 @@
     "balance": "tsx tools/balance.ts",
     "determinism": "tsx tools/determinism.ts",
     "mine-check": "tsx tools/mine-check.ts",
-    "deadlock-check": "tsx tools/deadlock-check.ts"
+    "deadlock-check": "tsx tools/deadlock-check.ts",
+    "input-check": "tsx tools/input-check.ts"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

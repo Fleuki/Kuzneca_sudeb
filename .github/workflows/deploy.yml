@@ -54,6 +54,11 @@ jobs:
       - name: Проверка тупиков
         run: npm run deadlock-check
 
+      # Нажатие должно давать ожидаемый результат: тап берёт ступеньку,
+      # зажатая кнопка бьёт повторно.
+      - name: Отзывчивость управления
+        run: npm run input-check
+
       - name: Сборка
         run: npm run build
 
