@@ -59,6 +59,7 @@ export function generateMine(rng: Rng, biome: BiomeId, oreAmount: number): MineS
       onGround: false,
       coyote: 0,
       jumpBuffer: 0,
+      jumpCutLock: 0,
       invuln: 0,
       swingTimer: 0,
       swingCooldown: 0,
@@ -171,12 +172,17 @@ export function generateMine(rng: Rng, biome: BiomeId, oreAmount: number): MineS
 
   // --- Точка старта и выход --------------------------------------------------
   const floorY = (ROOM_H - 2) * TILE;
-  state.player.x = 3 * TILE;
+  // Отступ от краёв уровня: камера упирается в границу, и персонаж у самого края
+  // оказывался под экранными кнопками движения — его не было видно. Колонку
+  // подбираем расчётом, а не на глаз: под платформой первый же прыжок упирался
+  // головой в перекрытие и поднимал всего на 14 px.
+  const startCol = clearColumn(tiles, width, height, 8, 1);
+  state.player.x = startCol * TILE + TILE / 2;
   state.player.y = floorY;
   state.player.px = state.player.x;
   state.player.py = state.player.y;
 
-  state.exitX = (width - 3) * TILE;
+  state.exitX = clearColumn(tiles, width, height, width - 7, -1) * TILE + TILE / 2;
   state.exitY = floorY;
 
   // Рядом со стартом и выходом ловушек быть не должно.
@@ -184,6 +190,37 @@ export function generateMine(rng: Rng, biome: BiomeId, oreAmount: number): MineS
   clearHazardsNear(state, tiles, width, state.exitX, 2.5 * TILE);
 
   return state;
+}
+
+/**
+ * Ищет колонку у пола со свободным местом над головой — начиная с `from`
+ * и двигаясь в сторону `dir`. Нужна и точке входа, и подъёмнику: и там и там
+ * игрок должен иметь возможность прыгнуть, не упираясь в перекрытие.
+ */
+function clearColumn(
+  tiles: number[],
+  width: number,
+  height: number,
+  from: number,
+  dir: number,
+): number {
+  // Прыжок поднимает чуть больше четырёх тайлов; просим пять свободных рядов.
+  const needed = 5;
+  for (let step = 0; step < width; step++) {
+    const x = from + step * dir;
+    if (x < 2 || x >= width - 2) break;
+
+    let free = true;
+    for (let i = 1; i <= needed; i++) {
+      if (tiles[(ROOM_H - 2 - i) * width + x] === TILE_SOLID) {
+        free = false;
+        break;
+      }
+    }
+    if (free && tiles[(ROOM_H - 1) * width + x] === TILE_SOLID) return x;
+  }
+  void height;
+  return from;
 }
 
 /**

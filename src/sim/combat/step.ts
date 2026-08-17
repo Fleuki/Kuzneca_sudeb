@@ -37,6 +37,7 @@ export function createCombat(state: GameState): CombatState {
       hpMax: run.hpMax,
       coyote: 0,
       jumpBuffer: 0,
+      jumpCutLock: 0,
       invuln: 0,
       dashCooldown: 0,
       dashTimer: 0,
@@ -148,16 +149,18 @@ function stepPlayer(state: GameState, combat: CombatState, dt: number): void {
       p.jumpBuffer = 0;
       p.coyote = 0;
       p.onGround = false;
+      p.jumpCutLock = PLAYER.jumpMinHold;
     }
-    if (!input.jump && p.vy < 0) p.vy *= Math.pow(PLAYER.jumpCutMultiplier, dt * 60);
+    if (p.jumpCutLock > 0) p.jumpCutLock -= dt;
+    else if (!input.jump && p.vy < 0) p.vy *= Math.pow(PLAYER.jumpCutMultiplier, dt * 60);
 
     p.vy = Math.min(p.vy + PLAYER.gravity * dt, PLAYER.maxFall);
   }
 
   moveInArena(p, dt, input.down);
 
-  // Атака
-  if (input.attackPressed && p.attackCooldown <= 0) {
+  // Атака. Как и кирка, повторяется, пока кнопка зажата.
+  if (input.attack && p.attackCooldown <= 0) {
     const interval = weapon ? weapon.interval : FISTS.interval;
     p.attackCooldown = interval;
     p.attackActive = Math.min(SWING_WINDOW, interval * 0.6);

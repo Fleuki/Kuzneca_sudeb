@@ -206,6 +206,8 @@ export interface MinePlayer {
   onGround: boolean;
   coyote: number;
   jumpBuffer: number;
+  /** Пока > 0, высота прыжка не гасится: короткий тап тоже даёт полный прыжок. */
+  jumpCutLock: number;
   /** Осталось кадров неуязвимости после урона. */
   invuln: number;
   /** Таймер замаха киркой. */
@@ -289,6 +291,8 @@ export interface CombatPlayer {
   hpMax: number;
   coyote: number;
   jumpBuffer: number;
+  /** Пока > 0, высота прыжка не гасится: короткий тап тоже даёт полный прыжок. */
+  jumpCutLock: number;
 
   invuln: number;
   dashCooldown: number;

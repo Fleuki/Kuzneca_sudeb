@@ -78,9 +78,11 @@ function stepPlayer(state: GameState, mine: MineState, dt: number, solids: Rect[
     p.jumpBuffer = 0;
     p.coyote = 0;
     p.onGround = false;
+    p.jumpCutLock = PLAYER.jumpMinHold;
   }
   // Отпустил кнопку на подъёме — прыжок короче.
-  if (!input.jump && p.vy < 0) p.vy *= Math.pow(PLAYER.jumpCutMultiplier, dt * 60);
+  if (p.jumpCutLock > 0) p.jumpCutLock -= dt;
+  else if (!input.jump && p.vy < 0) p.vy *= Math.pow(PLAYER.jumpCutMultiplier, dt * 60);
 
   p.vy = Math.min(p.vy + PLAYER.gravity * dt, PLAYER.maxFall);
 
@@ -89,8 +91,10 @@ function stepPlayer(state: GameState, mine: MineState, dt: number, solids: Rect[
 
   p.x = clamp(p.x, TILE + PLAYER.w / 2, (mine.width - 1) * TILE - PLAYER.w / 2);
 
-  // Кирка
-  if (input.attackPressed && p.swingCooldown <= 0) {
+  // Кирка. Читаем удержание, а не фронт нажатия: зажатая кнопка должна бить
+  // раз за разом с интервалом перезарядки. По фронту удар происходил ровно один,
+  // и на телефоне это читалось как «кнопка не работает».
+  if (input.attack && p.swingCooldown <= 0) {
     p.swingTimer = MINE.pickSwing;
     p.swingCooldown = MINE.pickCooldown;
     swingPick(state, mine);
