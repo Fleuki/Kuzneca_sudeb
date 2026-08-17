@@ -38,6 +38,18 @@ export class MineScene implements Scene {
 
   private builtFor: MineState | null = null;
 
+  /**
+   * Косметика удара киркой: крошка от породы и лёгкая тряска.
+   *
+   * Живёт в рендере и использует своё время и Math.random — на симуляцию это
+   * не влияет. Язык у удара тот же, что и в бою: попал — из места удара летят
+   * искры, точный скол светится ярче.
+   */
+  private chips: { x: number; y: number; vx: number; vy: number; life: number; color: number }[] = [];
+  private oreFlash = new Map<number, number>();
+  private shake = 0;
+  private lastTime = 0;
+
   private hpLabel = makeText('', style(13, COLORS.textDim));
   private packLabel = makeText('', style(13, COLORS.textDim));
   private targetLabel = makeText('', style(13, COLORS.gold));
@@ -71,14 +83,68 @@ export class MineScene implements Scene {
     const px = interp(mine.player.px, mine.player.x, alpha);
     const py = interp(mine.player.py, mine.player.y, alpha);
 
+    const frameDt = Math.min(0.05, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    this.stepChips(mine, frameDt);
+
     // Камера едет только по горизонтали: уровень по высоте помещается в экран.
     const worldW = mine.width * TILE;
     let camX = px - VIEW_W / 2;
     camX = Math.max(0, Math.min(worldW - VIEW_W, camX));
-    this.world.position.set(-Math.round(camX), WORLD_Y);
+    // Тряска от удара киркой — короткая и мелкая: это порода, а не босс.
+    const sx = Math.sin(time * 94) * this.shake * 4;
+    const sy = Math.cos(time * 77) * this.shake * 3;
+    this.world.position.set(-Math.round(camX) + sx, WORLD_Y + sy);
 
     this.drawEntities(mine, px, py, time);
     this.drawHud(state, mine, run.biome);
+  }
+
+  /**
+   * Ищет свежие удары по руде и подбрасывает крошку.
+   *
+   * Симуляция про рендер не знает и событий не шлёт, поэтому смотрим на
+   * `hitFlash`: он выставляется ровно в момент удара, и его рост — это и есть
+   * событие «кирка попала».
+   */
+  private stepChips(mine: MineState, dt: number): void {
+    for (const ore of mine.ore) {
+      const prev = this.oreFlash.get(ore.id) ?? 0;
+      if (ore.hitFlash > prev + 1e-6) {
+        const def = ITEMS[ore.item];
+        // Точный скол в слабое место отмечается ярче обычного удара.
+        const precise = ore.mined && ore.sweet <= 0 && ore.hpMax > 1;
+        const count = precise ? 14 : 8;
+        for (let i = 0; i < count; i++) {
+          const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
+          const speed = 60 + Math.random() * (precise ? 260 : 150);
+          this.chips.push({
+            x: ore.x,
+            y: ore.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 0.25 + Math.random() * 0.2,
+            color: i % 3 === 0 ? COLORS.emberHot : def.color,
+          });
+        }
+        this.shake = Math.min(0.5, this.shake + (precise ? 0.35 : 0.16));
+      }
+      this.oreFlash.set(ore.id, ore.hitFlash);
+    }
+
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 4);
+
+    const alive = [];
+    for (const c of this.chips) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.vy += 950 * dt;
+      c.vx *= Math.pow(0.3, dt);
+      alive.push(c);
+    }
+    this.chips = alive;
   }
 
   // -------------------------------------------------------------------------
@@ -248,6 +314,16 @@ export class MineScene implements Scene {
       const ey = cy + Math.sin(angle) * len;
       g.moveTo(cx, cy).lineTo(ex, ey).stroke({ width: 4, color: 0x9a8a6a });
       g.circle(ex, ey, 4).fill(0xb0b8c0);
+    }
+
+    // Крошка от ударов киркой — поверх всего, как искры в бою.
+    this.drawChips(g);
+  }
+
+  private drawChips(g: Graphics): void {
+    for (const c of this.chips) {
+      const a = Math.min(1, c.life / 0.35);
+      g.rect(c.x - 1.5, c.y - 1.5, 3, 3).fill({ color: c.color, alpha: a });
     }
   }
 

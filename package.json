@@ -13,7 +13,8 @@
     "determinism": "tsx tools/determinism.ts",
     "mine-check": "tsx tools/mine-check.ts",
     "deadlock-check": "tsx tools/deadlock-check.ts",
-    "input-check": "tsx tools/input-check.ts"
+    "input-check": "tsx tools/input-check.ts",
+    "feel-check": "tsx tools/feel-check.ts"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

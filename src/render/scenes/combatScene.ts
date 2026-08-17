@@ -10,24 +10,51 @@ import { Container, Graphics, Text } from 'pixi.js';
 import {
   ARENA,
   BOSSES,
+  FEEL,
   PLAYER,
   SHAPES,
   VIEW_H,
   VIEW_W,
 } from '../../core/constants.ts';
 import { ITEMS } from '../../core/items.ts';
-import type { BossState, CombatState, GameState, Hazard, Weapon } from '../../core/types.ts';
+import type { BossState, CombatState, GameState, Hazard, Impact, Weapon } from '../../core/types.ts';
 import { hazardRect } from '../../sim/combat/step.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
 import { centerText, drawBar, drawPanel, drawTelegraph, interp, makeText } from '../ui.ts';
 import type { Scene } from './scene.ts';
+
+/**
+ * Косметическая частица: пыль от приземления, крошка от удара.
+ *
+ * Живёт в рендере, а не в состоянии, и намеренно использует Math.random:
+ * на симуляцию она не влияет, а держать сотню частиц в сохранении и гонять
+ * их через ГПСЧ симуляции — это платить детерминизмом за пыль под ногами.
+ */
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: number;
+}
 
 export class CombatScene implements Scene {
   container = new Container();
   private world = new Container();
   private arenaG = new Graphics();
   private actorsG = new Graphics();
+  private fxG = new Graphics();
   private hudG = new Graphics();
+
+  private particles: Particle[] = [];
+  /** Хвост позиций игрока для послеобразов рывка. */
+  private trail: { x: number; y: number }[] = [];
+  private lastTime = 0;
+  /** Отметки попаданий, которым уже подбросили крошку. */
+  private sparkedImpacts = new Set<number>();
 
   private bossName = makeText('', style(15, COLORS.text));
   private bossPhase = makeText('', style(13, COLORS.magic));
@@ -39,7 +66,7 @@ export class CombatScene implements Scene {
   private brokenLabel = makeText('', style(16, COLORS.danger));
 
   constructor() {
-    this.world.addChild(this.arenaG, this.actorsG);
+    this.world.addChild(this.arenaG, this.actorsG, this.fxG);
     this.container.addChild(this.world, this.hudG);
     this.container.addChild(
       this.bossName,
@@ -57,16 +84,152 @@ export class CombatScene implements Scene {
     const combat = state.combat;
     if (!combat) return;
 
-    // Тряска экрана — косметика, поэтому берётся от времени рендера,
-    // а не от ГПСЧ симуляции: детерминизм не должен зависеть от кадров.
+    // Кадровое время рендера. Симуляция про него не знает: частицы, послеобразы
+    // и тряска — косметика и обязаны быть отделены от детерминированного шага.
+    const frameDt = Math.min(0.05, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+
+    // Тряска экрана. Частота высокая, амплитуда падает вместе с combat.shake —
+    // получается удар, а не качка.
     const shake = combat.shake;
-    const sx = Math.sin(time * 87) * shake * 7;
-    const sy = Math.cos(time * 71) * shake * 5;
+    const sx = Math.sin(time * 97) * shake * 9;
+    const sy = Math.cos(time * 83) * shake * 6;
     this.world.position.set(sx, sy);
+
+    // Толчок камеры на заморозке кадра: экран чуть подаётся вперёд и отпускает.
+    const punch = combat.freeze > 0 ? Math.min(1, combat.freeze / FEEL.hitstopMax) : 0;
+    const scale = 1 + punch * 0.012;
+    this.world.scale.set(scale);
+    this.world.pivot.set(VIEW_W / 2, VIEW_H / 2);
+    this.world.position.set(sx + VIEW_W / 2, sy + VIEW_H / 2);
+
+    this.spawnEffects(combat, alpha);
+    this.stepParticles(frameDt);
 
     this.drawArena(time);
     this.drawActors(combat, state.run?.weapon ?? null, alpha, time);
+    this.drawEffects(combat, time);
     this.drawHud(state, combat);
+  }
+
+  // -------------------------------------------------------------------------
+  // Эффекты удара
+  // -------------------------------------------------------------------------
+
+  /** Разбирает события симуляции в частицы: крошку от удара и пыль от прыжка. */
+  private spawnEffects(combat: CombatState, alpha: number): void {
+    for (const im of combat.impacts) {
+      if (this.sparkedImpacts.has(im.id)) continue;
+      this.sparkedImpacts.add(im.id);
+      this.burst(im);
+    }
+    // Множество не должно расти вечно: отметки живут доли секунды.
+    if (this.sparkedImpacts.size > 64) {
+      this.sparkedImpacts = new Set(combat.impacts.map((im) => im.id));
+    }
+
+    const p = combat.player;
+    if (p.landImpact > 0) {
+      const x = interp(p.px, p.x, alpha);
+      const power = Math.min(1, p.landImpact / PLAYER.maxFall);
+      for (let i = 0; i < 6 + Math.round(power * 6); i++) {
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        this.particles.push({
+          x,
+          y: p.y,
+          vx: dir * (40 + Math.random() * 130 * power),
+          vy: -20 - Math.random() * 60 * power,
+          life: 0.3 + Math.random() * 0.2,
+          maxLife: 0.5,
+          size: 2 + Math.random() * 2,
+          color: 0x6b5f57,
+        });
+      }
+    }
+
+    if (p.dashTimer > 0) {
+      this.trail.push({ x: interp(p.px, p.x, alpha), y: p.y });
+      if (this.trail.length > 6) this.trail.shift();
+    } else if (this.trail.length > 0) {
+      this.trail.shift();
+    }
+  }
+
+  private burst(im: Impact): void {
+    const count = im.kind === 'hurt' ? 14 : 8 + Math.round(im.power * 10);
+    const color =
+      im.kind === 'hurt'
+        ? COLORS.danger
+        : im.kind === 'pogo'
+          ? COLORS.gold
+          : im.kind === 'break'
+            ? COLORS.ember
+            : COLORS.emberHot;
+
+    for (let i = 0; i < count; i++) {
+      // Искры летят преимущественно от цели в сторону удара — так читается,
+      // кто кого ударил.
+      const spread = (Math.random() - 0.5) * Math.PI * 0.9;
+      const base = im.kind === 'pogo' ? Math.PI / 2 : im.dir > 0 ? 0 : Math.PI;
+      const angle = base + spread;
+      const speed = 120 + Math.random() * 260 * (0.5 + im.power);
+      this.particles.push({
+        x: im.x,
+        y: im.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 60,
+        life: 0.18 + Math.random() * 0.22,
+        maxLife: 0.4,
+        size: 2 + Math.random() * 2.5,
+        color,
+      });
+    }
+  }
+
+  private stepParticles(dt: number): void {
+    if (dt <= 0) return;
+    const alive: Particle[] = [];
+    for (const q of this.particles) {
+      q.life -= dt;
+      if (q.life <= 0) continue;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+      q.vy += 900 * dt;
+      q.vx *= Math.pow(0.2, dt);
+      alive.push(q);
+    }
+    this.particles = alive;
+  }
+
+  private drawEffects(combat: CombatState, time: number): void {
+    const g = this.fxG;
+    g.clear();
+
+    for (const q of this.particles) {
+      g.rect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size).fill({
+        color: q.color,
+        alpha: Math.min(1, q.life / q.maxLife),
+      });
+    }
+
+    // Кольцо в точке попадания: короткая вспышка поверх искр.
+    for (const im of combat.impacts) {
+      const t = im.life / FEEL.impactLife;
+      if (t <= 0) continue;
+      const r = (1 - t) * (im.kind === 'hurt' ? 46 : 30 + im.power * 26);
+      const color =
+        im.kind === 'hurt' ? COLORS.danger : im.kind === 'pogo' ? COLORS.gold : COLORS.emberHot;
+      g.circle(im.x, im.y, r).stroke({ width: 3 * t, color, alpha: t });
+      if (t > 0.75) g.circle(im.x, im.y, 10 * im.power + 4).fill({ color: 0xffffff, alpha: t });
+    }
+
+    // Красная рамка, пока идёт неуязвимость после пропущенного удара.
+    const p = combat.player;
+    if (p.invuln > 0) {
+      const a = Math.min(0.35, p.invuln / PLAYER.hitInvuln) * (0.6 + 0.4 * Math.sin(time * 24));
+      g.rect(0, 0, VIEW_W, 26).fill({ color: COLORS.danger, alpha: a * 0.6 });
+      g.rect(0, VIEW_H - 26, VIEW_W, 26).fill({ color: COLORS.danger, alpha: a * 0.6 });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -121,7 +284,7 @@ export class CombatScene implements Scene {
       g.circle(mx + 5, my - 28, 3).fill(COLORS.dangerSoft);
     }
 
-    this.drawBoss(g, combat.boss, alpha, time);
+    this.drawBoss(g, combat.boss, alpha, time, combat.player.x);
     this.drawPlayer(g, combat, weapon, alpha, time);
   }
 
@@ -173,9 +336,13 @@ export class CombatScene implements Scene {
     }
   }
 
-  private drawBoss(g: Graphics, boss: BossState, alpha: number, time: number): void {
+  private drawBoss(g: Graphics, boss: BossState, alpha: number, time: number, playerX: number): void {
     const def = BOSSES[boss.id];
-    const x = interp(boss.px, boss.x, alpha);
+    // Отдача от попадания: босса заметно ведёт назад, хотя его сценарий движения
+    // это не меняет. Без такого смещения удар по огромному телу читается только
+    // по полоске здоровья.
+    const push = boss.recoil * (boss.x < playerX ? -1 : 1);
+    const x = interp(boss.px, boss.x, alpha) + push;
     const y = interp(boss.py, boss.y, alpha);
     const left = x - boss.w / 2;
     const top = y - boss.h;
@@ -242,12 +409,15 @@ export class CombatScene implements Scene {
     const x = interp(p.px, p.x, alpha);
     const y = interp(p.py, p.y, alpha);
 
-    // Шлейф рывка — заодно подсказывает окно неуязвимости.
-    if (p.dashTimer > 0) {
-      for (let i = 1; i <= 3; i++) {
-        g.roundRect(x - p.facing * i * 16 - PLAYER.w / 2, y - PLAYER.h, PLAYER.w, PLAYER.h, 3)
-          .fill({ color: COLORS.magic, alpha: 0.16 / i });
-      }
+    // Послеобразы рывка: не выдуманный шлейф, а реальные прошлые позиции.
+    // Заодно это единственная подсказка про окно неуязвимости.
+    for (let i = 0; i < this.trail.length; i++) {
+      const ghost = this.trail[i];
+      const fade = (i + 1) / (this.trail.length + 1);
+      g.roundRect(ghost.x - PLAYER.w / 2, ghost.y - PLAYER.h, PLAYER.w, PLAYER.h, 3).fill({
+        color: COLORS.magic,
+        alpha: 0.22 * fade,
+      });
     }
 
     const blink = p.invuln > 0 && Math.floor(time * 20) % 2 === 0;
@@ -258,16 +428,51 @@ export class CombatScene implements Scene {
       g.rect(x - PLAYER.w / 2 + 3, y - PLAYER.h * 0.55, PLAYER.w - 6, PLAYER.h * 0.45).fill(0x8c5a3c);
     }
 
-    // Замах: дуга у молота широкая, у клинков — короткий выпад.
+    // Замах. Форма повторяет реальный хитбокс — в том числе у ударов вверх
+    // и вниз, иначе игрок не поймёт, почему отскок не сработал.
     if (p.attackAnim > 0) {
       const range = weapon ? weapon.range : 30;
       const hitH = weapon ? SHAPES[weapon.shape].hitH : 40;
       const cy = y - PLAYER.h / 2;
-      const ax = p.facing > 0 ? x : x - range;
       const t = Math.min(1, p.attackAnim / 0.25);
       const color = weapon ? ITEMS[weapon.base].color : 0xd8cbb4;
-      g.rect(ax, cy - hitH / 2, range, hitH).fill({ color, alpha: 0.22 * t });
-      g.rect(ax, cy - hitH / 2, range, hitH).stroke({ width: 2, color, alpha: 0.7 * t });
+
+      let rx: number;
+      let ry: number;
+      let rw: number;
+      let rh: number;
+      if (p.attackDir === 'up') {
+        rx = x - hitH / 2;
+        ry = y - PLAYER.h - range;
+        rw = hitH;
+        rh = range;
+      } else if (p.attackDir === 'down') {
+        rx = x - hitH / 2;
+        ry = y;
+        rw = hitH;
+        rh = range;
+      } else {
+        rx = p.facing > 0 ? x : x - range;
+        ry = cy - hitH / 2;
+        rw = range;
+        rh = hitH;
+      }
+
+      // Замах выезжает, а не появляется целиком: за 0.25 с это читается как удар.
+      const grow = 0.55 + 0.45 * (1 - t);
+      const cx0 = rx + rw / 2;
+      const cy0 = ry + rh / 2;
+      const dw = rw * grow;
+      const dh = rh * grow;
+      const ox = p.attackDir === 'side' ? (rw - dw) / 2 * -p.facing : 0;
+      const oy = p.attackDir === 'down' ? (rh - dh) / 2 : p.attackDir === 'up' ? -(rh - dh) / 2 : 0;
+
+      g.roundRect(cx0 - dw / 2 + ox, cy0 - dh / 2 + oy, dw, dh, 4).fill({ color, alpha: 0.2 * t });
+      g.roundRect(cx0 - dw / 2 + ox, cy0 - dh / 2 + oy, dw, dh, 4).stroke({
+        width: 2,
+        color,
+        alpha: 0.75 * t,
+      });
     }
   }
 

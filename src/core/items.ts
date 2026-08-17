@@ -157,8 +157,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     { damageMult: 1.7, durability: 60, speedMult: 1.02, magicFraction: 1 },
     0x8ff8f0, 0x2a8f8a, 'Чистая магия. Рассыпается на шестидесятом ударе'),
   heartiron: def('heartiron', 'Сердечное железо', 'Сд', 2, 'alloy',
-    { damageMult: 1.0, durability: 140, speedMult: 1.12, lifesteal: 0.09 },
-    0xe0616b, 0x78242c, 'Возвращает каждый одиннадцатый удар здоровьем'),
+    { damageMult: 1.05, durability: 140, speedMult: 1.14, lifesteal: 0.11 },
+    0xe0616b, 0x78242c, 'Возвращает каждый девятый удар здоровьем'),
 
   // --- Уровень 2: гибриды ---------------------------------------------------
   shadowsteel: def('shadowsteel', 'Теневая сталь', 'Тн', 2, 'alloy',
@@ -168,7 +168,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     { damageMult: 1.3, durability: 110, speedMult: 1.05, magicFraction: 0.5 },
     0xa8e2e0, 0x467a7a, 'Половина урона идёт магией — щит держит её плохо'),
   crimsonsteel: def('crimsonsteel', 'Багровая сталь', 'Бг', 2, 'alloy',
-    { damageMult: 1.05, durability: 150, speedMult: 1.05, lifesteal: 0.06 },
+    { damageMult: 1.08, durability: 150, speedMult: 1.08, lifesteal: 0.07 },
     0xd08a86, 0x6b3634, 'Крепкая сталь, которая понемногу лечит'),
   voidglass: def('voidglass', 'Пустотное стекло', 'Пс', 2, 'alloy',
     { damageMult: 1.5, durability: 85, speedMult: 0.9, armorPierce: 0.6, magicFraction: 0.6 },
