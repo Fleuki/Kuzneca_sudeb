@@ -10,12 +10,12 @@ import { Container, Graphics, Text } from 'pixi.js';
 import {
   ARENA,
   BOSSES,
-  MATERIALS,
   PLAYER,
   SHAPES,
   VIEW_H,
   VIEW_W,
 } from '../../core/constants.ts';
+import { ITEMS } from '../../core/items.ts';
 import type { BossState, CombatState, GameState, Hazard, Weapon } from '../../core/types.ts';
 import { hazardRect } from '../../sim/combat/step.ts';
 import { COLORS, SMALL_STYLE, style } from '../theme.ts';
@@ -265,7 +265,7 @@ export class CombatScene implements Scene {
       const cy = y - PLAYER.h / 2;
       const ax = p.facing > 0 ? x : x - range;
       const t = Math.min(1, p.attackAnim / 0.25);
-      const color = weapon ? MATERIALS[weapon.primary].color : 0xd8cbb4;
+      const color = weapon ? ITEMS[weapon.base].color : 0xd8cbb4;
       g.rect(ax, cy - hitH / 2, range, hitH).fill({ color, alpha: 0.22 * t });
       g.rect(ax, cy - hitH / 2, range, hitH).stroke({ width: 2, color, alpha: 0.7 * t });
     }
@@ -306,9 +306,9 @@ export class CombatScene implements Scene {
     const weapon = state.run?.weapon ?? null;
     const alive = weapon && weapon.durability > 0;
     if (alive && weapon) {
-      const mat = MATERIALS[weapon.primary];
-      this.weaponLabel.text = `${SHAPES[weapon.shape].name} · ${mat.name}`;
-      this.weaponLabel.style.fill = mat.color;
+      const base = ITEMS[weapon.base];
+      this.weaponLabel.text = `${SHAPES[weapon.shape].name} · ${base.name}`;
+      this.weaponLabel.style.fill = base.color;
       drawBar(
         g,
         28,

@@ -7,26 +7,23 @@ import { createRng } from '../core/rng.ts';
 import {
   BOSSES,
   BOSS_ORDER,
-  MATERIAL_ORDER,
   MINE,
-  RECIPE_PRIMARY,
   PLAYER,
   SAVE_VERSION,
   TEMPERING_REDUCTION,
   UPGRADES,
+  WEAPON_BASE_COST,
 } from '../core/constants.ts';
+import { FORGEABLE_ITEMS, ITEM_ORDER, findRecipe } from '../core/items.ts';
+import type { ItemId } from '../core/items.ts';
 import { emptyInput } from '../core/types.ts';
-import type {
-  Backpack,
-  BossId,
-  GameState,
-  MetaState,
-  MaterialId,
-  UpgradeId,
-} from '../core/types.ts';
+import type { BossId, GameState, Inventory, MetaState, UpgradeId } from '../core/types.ts';
 
-export function emptyBackpack(): Backpack {
-  return { iron: 0, obsidian: 0, crystal: 0, bloodiron: 0 };
+/** Пустой рюкзак: все узлы дерева присутствуют нулями, чтобы сейв был стабильным. */
+export function emptyInventory(): Inventory {
+  const inv = {} as Inventory;
+  for (const id of ITEM_ORDER) inv[id] = 0;
+  return inv;
 }
 
 export function createMeta(): MetaState {
@@ -34,7 +31,8 @@ export function createMeta(): MetaState {
     brands: 0,
     upgrades: [],
     defeated: [],
-    backpack: emptyBackpack(),
+    backpack: emptyInventory(),
+    known: [],
     runsStarted: 0,
     runsWon: 0,
   };
@@ -71,8 +69,11 @@ export function backpackCapacity(meta: MetaState): number {
   return MINE.backpackBase + (hasUpgrade(meta, 'roomy_pack') ? MINE.backpackBonus : 0);
 }
 
-export function backpackTotal(bp: Backpack): number {
-  return bp.iron + bp.obsidian + bp.crystal + bp.bloodiron;
+/** Сколько всего единиц лежит в рюкзаке. Единица любого уровня — один слот. */
+export function backpackTotal(bp: Inventory): number {
+  let total = 0;
+  for (const id of ITEM_ORDER) total += bp[id];
+  return total;
 }
 
 export function oreYield(meta: MetaState): number {
@@ -106,7 +107,7 @@ export function isDefeated(meta: MetaState, id: BossId): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Ресурсы
+// Рюкзак
 // ---------------------------------------------------------------------------
 
 /**
@@ -114,29 +115,63 @@ export function isDefeated(meta: MetaState, id: BossId): boolean {
  * Рюкзак — единственное ограничение фазы добычи (§4), поэтому переполнение
  * должно быть видимым, а не молча съедаться.
  */
-export function addToBackpack(
-  bp: Backpack,
-  material: MaterialId,
-  amount: number,
-  capacity: number,
-): number {
+export function addItem(bp: Inventory, item: ItemId, amount: number, capacity: number): number {
   const free = Math.max(0, capacity - backpackTotal(bp));
   const put = Math.min(free, amount);
-  bp[material] += put;
+  bp[item] += put;
   return put;
 }
 
-/**
- * Хватает ли материала хоть на какое-нибудь оружие.
- *
- * Если нет — игрок в тупике, и ему нужно предложить выход: спуститься ещё раз
- * или выбросить лишнее из полного рюкзака.
- */
-export function canForgeAnything(meta: MetaState): boolean {
-  for (const m of MATERIAL_ORDER) {
-    if (meta.backpack[m] >= RECIPE_PRIMARY) return true;
+/** Списывает предметы, если их хватает. Возвращает false и ничего не трогает, если нет. */
+export function takeItems(bp: Inventory, cost: Partial<Record<ItemId, number>>): boolean {
+  for (const key of Object.keys(cost) as ItemId[]) {
+    if (bp[key] < (cost[key] ?? 0)) return false;
+  }
+  for (const key of Object.keys(cost) as ItemId[]) {
+    bp[key] -= cost[key] ?? 0;
+  }
+  return true;
+}
+
+/** Что реально лежит в рюкзаке — в порядке дерева. Основа сетки на экране кузницы. */
+export function ownedItems(bp: Inventory): ItemId[] {
+  return ITEM_ORDER.filter((id) => bp[id] > 0);
+}
+
+/** Предметы, из которых прямо сейчас хватает на оружие (нужно две единицы). */
+export function forgeableItems(bp: Inventory): ItemId[] {
+  return FORGEABLE_ITEMS.filter((id) => bp[id] >= WEAPON_BASE_COST);
+}
+
+/** Есть ли хоть одна пара, которую можно соединить на верстаке. */
+export function canCraftAnything(bp: Inventory): boolean {
+  const owned = ownedItems(bp);
+  for (let i = 0; i < owned.length; i++) {
+    for (let j = i; j < owned.length; j++) {
+      const a = owned[i];
+      const b = owned[j];
+      if (a === b && bp[a] < 2) continue;
+      if (findRecipe(a, b)) return true;
+    }
   }
   return false;
+}
+
+/**
+ * Может ли игрок хоть что-то сделать в кузнице: сковать оружие или хотя бы
+ * соединить два предмета. Если нет — он в тупике, и ему нужно предложить выход.
+ */
+export function canForgeAnything(meta: MetaState): boolean {
+  return forgeableItems(meta.backpack).length > 0 || canCraftAnything(meta.backpack);
+}
+
+/** Отметить узел дерева открытым — рецепт перестаёт показываться как «???». */
+export function markKnown(meta: MetaState, item: ItemId): void {
+  if (meta.known.indexOf(item) < 0) meta.known.push(item);
+}
+
+export function isKnown(meta: MetaState, item: ItemId): boolean {
+  return meta.known.indexOf(item) >= 0;
 }
 
 export function hpMaxFor(): number {

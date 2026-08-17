@@ -11,13 +11,13 @@ import {
   BIOMES,
   BOSSES,
   MATERIALS,
-  MATERIAL_ORDER,
   MINE,
   PLAYER,
   TILE,
   VIEW_H,
   VIEW_W,
 } from '../../core/constants.ts';
+import { ITEMS, ORE_ITEMS } from '../../core/items.ts';
 import { TILE_POISON, TILE_SOLID, TILE_SPIKE } from '../../core/types.ts';
 import type { GameState, MineState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../../sim/state.ts';
@@ -50,7 +50,7 @@ export class MineScene implements Scene {
     this.world.addChild(this.tilesG, this.entitiesG);
     this.container.addChild(this.world, this.hudG);
     this.container.addChild(this.hpLabel, this.packLabel, this.targetLabel, this.biomeLabel);
-    for (let i = 0; i < MATERIAL_ORDER.length; i++) {
+    for (let i = 0; i < ORE_ITEMS.length; i++) {
       const t = makeText('', style(13, COLORS.textDim));
       this.stockLabels.push(t);
       this.container.addChild(t);
@@ -138,20 +138,64 @@ export class MineScene implements Scene {
     const g = this.entitiesG;
     g.clear();
 
-    // Руда
+    // Руда. Размер жилы читается силуэтом: обычная — камешек, крупная — глыба,
+    // самородок — гранёный ромб, ради которого стоит свернуть с дороги.
     for (const ore of mine.ore) {
       if (ore.mined) continue;
-      const mat = MATERIALS[ore.material];
-      const size = 15;
+      const def = ITEMS[ore.item];
       const flash = ore.hitFlash > 0;
-      g.roundRect(ore.x - size / 2, ore.y - size / 2, size, size, 3)
-        .fill(flash ? 0xffffff : mat.color)
-        .stroke({ width: 2, color: mat.darkColor, alignment: 1 });
+      const fill = flash ? 0xffffff : def.color;
+      const size = ore.size === 'lode' ? 24 : 15;
+
+      if (ore.size === 'nugget') {
+        const r = 11;
+        g.moveTo(ore.x, ore.y - r)
+          .lineTo(ore.x + r, ore.y)
+          .lineTo(ore.x, ore.y + r)
+          .lineTo(ore.x - r, ore.y)
+          .fill(fill)
+          .stroke({ width: 2, color: def.darkColor, alignment: 1 });
+        // Самородок всегда чуть светится: слиток даром — это событие.
+        g.circle(ore.x, ore.y, 15 + Math.sin(time * 3) * 2).stroke({
+          width: 1,
+          color: def.color,
+          alpha: 0.35,
+        });
+      } else {
+        g.roundRect(ore.x - size / 2, ore.y - size / 2, size, size, 3)
+          .fill(fill)
+          .stroke({ width: 2, color: def.darkColor, alignment: 1 });
+        if (ore.size === 'lode') {
+          g.rect(ore.x - size / 2 + 4, ore.y - size / 2 + 4, size - 8, size - 8).stroke({
+            width: 1,
+            color: def.darkColor,
+            alpha: 0.8,
+          });
+        }
+      }
+
       // Блик — подсказывает, что объект интерактивный.
       g.rect(ore.x - 4, ore.y - 5, 3, 3).fill({ color: 0xffffff, alpha: 0.7 });
+
+      // Слабое место: пока горит точка, следующий удар раскалывает жилу целиком.
+      if (ore.sweet > 0) {
+        const pulse = 0.6 + 0.4 * Math.sin(time * 14);
+        g.circle(ore.x, ore.y, 4).fill({ color: COLORS.emberHot, alpha: pulse });
+        g.circle(ore.x, ore.y, size * 0.75 + 4).stroke({
+          width: 2,
+          color: COLORS.emberHot,
+          alpha: 0.5 * pulse,
+        });
+      }
+
       // Оставшаяся прочность жилы.
-      if (ore.hp < MINE.oreHp) {
-        g.rect(ore.x - size / 2, ore.y + size / 2 + 3, size, 2).fill({ color: COLORS.danger, alpha: 0.8 });
+      if (ore.hp < ore.hpMax) {
+        const w = size;
+        g.rect(ore.x - w / 2, ore.y + size / 2 + 3, w, 2).fill({ color: COLORS.danger, alpha: 0.5 });
+        g.rect(ore.x - w / 2, ore.y + size / 2 + 3, (w * ore.hp) / ore.hpMax, 2).fill({
+          color: COLORS.danger,
+          alpha: 0.9,
+        });
       }
     }
 
@@ -233,16 +277,22 @@ export class MineScene implements Scene {
     this.packLabel.style.fill = full ? COLORS.ember : COLORS.textDim;
     this.packLabel.position.set(244, 32);
 
-    // Что уже лежит в рюкзаке — чтобы решать, что добивать.
+    // Что уже лежит в рюкзаке — чтобы решать, что добивать. Показываем сырьё:
+    // в шахте важно именно оно, слитки и сплавы игрок собирает наверху.
     let sx = 472;
-    for (let i = 0; i < MATERIAL_ORDER.length; i++) {
-      const m = MATERIAL_ORDER[i];
-      const count = state.meta.backpack[m];
+    for (let i = 0; i < this.stockLabels.length; i++) {
+      const id = ORE_ITEMS[i];
       const t = this.stockLabels[i];
-      t.text = `${MATERIALS[m].short} ${count}`;
-      t.style.fill = count > 0 ? MATERIALS[m].color : COLORS.textFaint;
+      if (!id) {
+        t.text = '';
+        continue;
+      }
+      const count = state.meta.backpack[id];
+      const def = ITEMS[id];
+      t.text = `${def.short} ${count}`;
+      t.style.fill = count > 0 ? def.color : COLORS.textFaint;
       t.position.set(sx + 12, 15);
-      g.rect(sx, 18, 8, 8).fill(count > 0 ? MATERIALS[m].color : COLORS.textFaint);
+      g.rect(sx, 18, 8, 8).fill(count > 0 ? def.color : COLORS.textFaint);
       sx += 62;
     }
 

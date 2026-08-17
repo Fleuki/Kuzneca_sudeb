@@ -9,6 +9,7 @@
  */
 
 import type { Rng } from './rng.ts';
+import type { ItemId } from './items.ts';
 
 // ---------------------------------------------------------------------------
 // Идентификаторы
@@ -30,8 +31,13 @@ export type Phase =
   | 'result'
   | 'upgrades';
 
-/** Материалы в рюкзаке / на складе. */
-export type Backpack = Record<MaterialId, number>;
+/**
+ * Рюкзак: сколько чего лежит. Ключи — все предметы дерева, а не четыре материала:
+ * слитки и сплавы игрок носит с собой ровно так же, как руду, и они точно так же
+ * занимают место. Одна единица любого уровня — один слот, поэтому крафт ещё и
+ * освобождает рюкзак (две руды превращаются в один слиток).
+ */
+export type Inventory = Record<ItemId, number>;
 
 // ---------------------------------------------------------------------------
 // Ввод
@@ -81,9 +87,10 @@ export function emptyInput(): InputState {
  */
 export interface Weapon {
   shape: ShapeId;
-  primary: MaterialId;
-  /** null — ковали только из основного материала, без вторичного бонуса. */
-  secondary: MaterialId | null;
+  /** Основа: предмет дерева, из которого выкована боевая часть. */
+  base: ItemId;
+  /** Вставка: даёт 40% своего эффекта. null — ковали без неё. */
+  inlay: ItemId | null;
 
   /** Урон за одно попадание, уже с учётом материалов и мини-игры. */
   damage: number;
@@ -122,10 +129,16 @@ export interface MetaState {
   /** Боссы, побеждённые хотя бы раз — открывают следующих. */
   defeated: BossId[];
   /**
-   * Материалы, оставшиеся с прошлых забегов.
+   * Предметы, оставшиеся с прошлых забегов.
    * §8: «Ресурсы в рюкзаке сохраняются» при поражении.
    */
-  backpack: Backpack;
+  backpack: Inventory;
+  /**
+   * Что игрок уже открывал в дереве. Неоткрытый рецепт показывается как «???»:
+   * первое соединение двух незнакомых слитков должно быть находкой, а не
+   * вычитыванием таблицы.
+   */
+  known: ItemId[];
   /** Счётчики для экрана статистики. */
   runsStarted: number;
   runsWon: number;
@@ -159,17 +172,34 @@ export const TILE_POISON = 3;
 export const TILE_EXIT = 4;
 export const TILE_DIRT = 5;
 
+/**
+ * Размер жилы. Крупная руда стоит дольше стоять на месте — а стоять в шахте
+ * с ловушками и есть цена ресурса.
+ */
+export type OreSize = 'vein' | 'lode' | 'nugget';
+
 export interface OreEntity {
   id: number;
   x: number;
   y: number;
-  material: MaterialId;
+  size: OreSize;
+  /** Что именно упадёт в рюкзак: сырьё, а у самородка — сразу слиток. */
+  item: ItemId;
   /** Сколько ударов киркой осталось. */
   hp: number;
+  hpMax: number;
   amount: number;
   mined: boolean;
   /** Таймер вспышки после удара — читает только рендер. */
   hitFlash: number;
+  /**
+   * «Слабое место»: после удара жила отзывается, и через паузу на ней
+   * загорается точка. Удар в этот момент раскалывает её целиком и даёт больше.
+   * Так добыча перестаёт быть удержанием кнопки и становится ритмом —
+   * тем же навыком, что и мини-игра ковки.
+   */
+  sweetDelay: number;
+  sweet: number;
 }
 
 export interface CrumbleEntity {
@@ -225,7 +255,9 @@ export interface MineState {
   crumbles: CrumbleEntity[];
   stalactites: StalactiteEntity[];
   /** Собрано за этот заход — для итогового экрана. */
-  collected: Backpack;
+  collected: Inventory;
+  /** Сколько раз подряд игрок попал в слабое место — для HUD и поощрения. */
+  sweetStreak: number;
   /** Позиция выхода в пикселях. */
   exitX: number;
   exitY: number;
@@ -241,14 +273,28 @@ export interface MineState {
 // Ковка
 // ---------------------------------------------------------------------------
 
-export interface ForgeState {
-  stage: 'select' | 'minigame' | 'done';
-  shape: ShapeId;
-  primary: MaterialId | null;
-  secondary: MaterialId | null;
+/** Что сейчас открыто в кузнице: верстак с деревом или наковальня. */
+export type ForgeTab = 'craft' | 'assemble';
 
-  /** Курсор на панели выбора: 0 — форма, 1 — основной, 2 — вторичный. */
-  cursorRow: number;
+export interface ForgeState {
+  /** 'plan' — верстак и наковальня, дальше мини-игра и готовое оружие. */
+  stage: 'plan' | 'minigame' | 'done';
+  tab: ForgeTab;
+
+  /** Курсор по сетке рюкзака (индекс в списке видимых предметов). */
+  cursor: number;
+  /** Два слота верстака: что с чем соединяем. */
+  slotA: ItemId | null;
+  slotB: ItemId | null;
+  /** Что получилось последним соединением — для вспышки и подписи. */
+  lastCraft: ItemId | null;
+  craftFlash: number;
+
+  shape: ShapeId;
+  base: ItemId | null;
+  inlay: ItemId | null;
+  /** Строка наковальни: 0 — форма, 1 — основа, 2 — вставка. */
+  assembleRow: number;
 
   strikesTotal: number;
   strikesDone: number;

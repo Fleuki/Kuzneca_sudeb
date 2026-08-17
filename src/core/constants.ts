@@ -6,6 +6,7 @@
  * и правки после плейтестов не требовали лазить по всей кодовой базе.
  */
 
+import type { ItemId } from './items.ts';
 import type { BiomeId, BossId, MaterialId, ShapeId, UpgradeId } from './types.ts';
 
 // ---------------------------------------------------------------------------
@@ -17,7 +18,12 @@ export const DT = 1 / TICK_RATE;
 /** Больше этого за один кадр не досимулируем — защита от «спирали смерти». */
 export const MAX_FRAME_TIME = 0.25;
 
-export const SAVE_VERSION = 1;
+/**
+ * Схема сохранения. Версия 2 — переход с четырёх материалов на дерево предметов:
+ * старый рюкзак «12 железа» в новую структуру не превращается осмысленно,
+ * поэтому такие сейвы отбрасываются целиком.
+ */
+export const SAVE_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Логическое разрешение. Рендер масштабирует его под окно.
@@ -30,19 +36,20 @@ export const VIEW_H = 540;
 // Материалы (§3)
 // ---------------------------------------------------------------------------
 
+/**
+ * Материал — это сорт породы в шахте, а не характеристики оружия.
+ *
+ * Раньше здесь же лежали урон и прочность, но с появлением дерева предметов
+ * (core/items.ts) характеристики принадлежат конкретному узлу дерева: у слитка
+ * и у сплава из того же металла они разные. Материал остался тем, чем и был
+ * на самом деле, — жилой: имя, цвет и то, какое сырьё она даёт.
+ */
 export interface MaterialDef {
   id: MaterialId;
   name: string;
   short: string;
-  damageMult: number;
-  durability: number;
-  speedMult: number;
-  /** Доля игнорируемой брони. */
-  armorPierce: number;
-  /** Доля урона, проходящая сквозь щиты как магическая. */
-  magicFraction: number;
-  /** Вампиризм: доля нанесённого урона возвращается здоровьем. */
-  lifesteal: number;
+  /** Что падает в рюкзак с этой жилы. */
+  ore: ItemId;
   color: number;
   darkColor: number;
   note: string;
@@ -53,64 +60,44 @@ export const MATERIALS: Record<MaterialId, MaterialDef> = {
     id: 'iron',
     name: 'Железо',
     short: 'Жл',
-    damageMult: 1.0,
-    durability: 120,
-    speedMult: 1.0,
-    armorPierce: 0,
-    magicFraction: 0,
-    lifesteal: 0,
+    ore: 'iron_ore',
     color: 0xb9c2cc,
     darkColor: 0x6d7580,
-    note: 'Нейтральный, стартовый',
+    note: 'Основа дерева: сталь, лунная сталь, осадный сплав',
   },
   obsidian: {
     id: 'obsidian',
     name: 'Обсидиан',
     short: 'Об',
-    damageMult: 1.3,
-    durability: 200,
-    speedMult: 0.75,
-    armorPierce: 1,
-    magicFraction: 0,
-    lifesteal: 0,
+    ore: 'obsidian_ore',
     color: 0x6b4fa0,
     darkColor: 0x2e2145,
-    note: 'Игнорирует броню',
+    note: 'Ветка брони: всё, что проходит сквозь панцирь',
   },
   crystal: {
     id: 'crystal',
     name: 'Светящийся кристалл',
     short: 'Кр',
-    damageMult: 1.6,
-    durability: 50,
-    speedMult: 1.0,
-    armorPierce: 0,
-    magicFraction: 1,
-    lifesteal: 0,
+    ore: 'crystal_ore',
     color: 0x63e0d8,
     darkColor: 0x1f6b68,
-    note: 'Магический урон, проходит сквозь щиты',
+    note: 'Ветка магии: проходит сквозь щиты, но хрупкая',
   },
   bloodiron: {
     id: 'bloodiron',
     name: 'Кровавое железо',
     short: 'Кв',
-    damageMult: 0.9,
-    durability: 100,
-    speedMult: 1.1,
-    armorPierce: 0,
-    magicFraction: 0,
-    lifesteal: 0.08,
+    ore: 'blood_ore',
     color: 0xc4404a,
     darkColor: 0x5e1a20,
-    note: '8% урона возвращается здоровьем',
+    note: 'Ветка вампиризма: возвращает урон здоровьем',
   },
 };
 
 export const MATERIAL_ORDER: MaterialId[] = ['iron', 'obsidian', 'crystal', 'bloodiron'];
 
-/** Вторичный материал даёт 40% от своего эффекта (§5). */
-export const SECONDARY_WEIGHT = 0.4;
+/** Вставка даёт 40% от своего эффекта (§5, прежний «вторичный материал»). */
+export const INLAY_WEIGHT = 0.4;
 
 // ---------------------------------------------------------------------------
 // Формы оружия (§5)
@@ -150,9 +137,22 @@ export const SHAPES: Record<ShapeId, ShapeDef> = {
 
 export const SHAPE_ORDER: ShapeId[] = ['heavy', 'light'];
 
-/** Рецепт: 12 основного + 6 вторичного (§5). */
-export const RECIPE_PRIMARY = 12;
-export const RECIPE_SECONDARY = 6;
+/**
+ * Рецепт оружия: две единицы основы и одна вставка.
+ *
+ * В сырье это ровно вдвое дороже самой основы, поэтому цена оружия читается
+ * прямо по дереву: слиток — 4 руды, сплав — 8, третий уровень — 16. Рюкзак на
+ * 20 дотягивает до третьего уровня без вставки, и это главный размен добычи.
+ */
+export const WEAPON_BASE_COST = 2;
+export const WEAPON_INLAY_COST = 1;
+
+/**
+ * Ширина сетки рюкзака в кузнице. Живёт здесь, а не в рендере, потому что по ней
+ * ходит курсор в симуляции: «вниз» — это ровно один ряд сетки, и число должно
+ * быть одним и тем же и для разметки, и для навигации.
+ */
+export const FORGE_GRID_COLS = 6;
 
 /** Кулаки, когда оружие сломалось прямо в бою. */
 export const FISTS = {
@@ -247,10 +247,34 @@ export const MINE = {
   /** Базовая вместимость рюкзака. */
   backpackBase: 20,
   backpackBonus: 5,
-  /** Сколько ударов киркой держит руда. */
+  /** Сколько ударов киркой держит обычная жила. */
   oreHp: 2,
   oreAmount: 2,
   oreAmountBonus: 1,
+
+  /**
+   * Размеры жил. Крупная жила — это не «больше руды бесплатно»: чтобы её
+   * доломать, надо простоять на месте вдвое дольше, а стоять в шахте
+   * с ловушками дорого. Самородок вместо сырья отдаёт готовый слиток —
+   * то есть экономит и место в рюкзаке, и один уровень крафта.
+   */
+  lodeHp: 5,
+  lodeAmountMult: 2,
+  nuggetHp: 3,
+  /** Веса на размер жилы: обычная / крупная / самородок. */
+  sizeWeights: { vein: 70, lode: 20, nugget: 10 },
+
+  /**
+   * Слабое место жилы. После удара порода отзывается: через `sweetDelay` на ней
+   * загорается точка и держится `sweetWindow`. Удар в этот момент раскалывает
+   * жилу целиком и добавляет `sweetBonus` единиц.
+   *
+   * Окно чуть шире перезарядки кирки (0.32 с) — попасть можно, но только если
+   * бить в ритм, а не держать кнопку зажатой.
+   */
+  sweetDelay: 0.2,
+  sweetWindow: 0.34,
+  sweetBonus: 1,
   /** Дальность и длительность замаха киркой. */
   pickRange: 40,
   pickSwing: 0.12,
