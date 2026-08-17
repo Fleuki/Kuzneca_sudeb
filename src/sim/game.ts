@@ -11,24 +11,41 @@ import {
   BIOME_ORDER,
   BOSSES,
   DT,
+  FORGE_GRID_COLS,
   KEEP_WEAPON_ON_DEFEAT,
-  MATERIALS,
-  MATERIAL_ORDER,
   PLAYER,
-  RECIPE_PRIMARY,
-  RECIPE_SECONDARY,
   SHAPE_ORDER,
   UPGRADES,
   UPGRADE_ORDER,
+  WEAPON_BASE_COST,
 } from '../core/constants.ts';
+import { ITEMS, isForgeable } from '../core/items.ts';
+import type { ItemId } from '../core/items.ts';
 import { nextU32 } from '../core/rng.ts';
 import type { Command } from '../core/commands.ts';
-import type { BossId, GameState, MaterialId, ResultState } from '../core/types.ts';
+import type { BossId, GameState, ResultState } from '../core/types.ts';
 import { generateMine } from './mine/generate.ts';
 import { stepMine } from './mine/step.ts';
-import { beginMinigame, canForge, createForgeState, forgeStrike, requiredAmount, stepForge } from './forge/step.ts';
+import {
+  beginMinigame,
+  bestBase,
+  canForge,
+  createForgeState,
+  forgeStrike,
+  requiredAmount,
+  stepForge,
+} from './forge/step.ts';
+import { canCraft, clampCursor, clearSlots, craft, itemAtCursor, putInSlot } from './forge/craft.ts';
 import { combatFinished, createCombat, stepCombat } from './combat/step.ts';
-import { availableBosses, canAfford, canForgeAnything, hasUpgrade, oreYield } from './state.ts';
+import {
+  availableBosses,
+  canAfford,
+  canForgeAnything,
+  forgeableItems,
+  hasUpgrade,
+  oreYield,
+  ownedItems,
+} from './state.ts';
 
 const NOTICE_TIME = 2.6;
 
@@ -87,16 +104,41 @@ export function dispatch(state: GameState, cmd: Command): void {
       leaveMine(state);
       break;
 
+    case 'FORGE_TAB':
+      if (state.forge && state.forge.stage === 'plan') state.forge.tab = cmd.tab;
+      break;
+
     case 'FORGE_SET_SHAPE':
-      if (state.forge && state.forge.stage === 'select') state.forge.shape = cmd.shape;
+      if (state.forge && state.forge.stage === 'plan') state.forge.shape = cmd.shape;
       break;
 
-    case 'FORGE_SET_PRIMARY':
-      if (state.forge && state.forge.stage === 'select') state.forge.primary = cmd.material;
+    case 'FORGE_SET_BASE':
+      if (state.forge && state.forge.stage === 'plan' && isForgeable(cmd.item)) {
+        state.forge.base = cmd.item;
+      }
       break;
 
-    case 'FORGE_SET_SECONDARY':
-      if (state.forge && state.forge.stage === 'select') state.forge.secondary = cmd.material;
+    case 'FORGE_SET_INLAY':
+      if (state.forge && state.forge.stage === 'plan') state.forge.inlay = cmd.item;
+      break;
+
+    case 'CRAFT_CURSOR':
+      if (state.forge && state.forge.stage === 'plan') {
+        state.forge.cursor = cmd.index;
+        clampCursor(state);
+      }
+      break;
+
+    case 'CRAFT_PICK':
+      craftPick(state, cmd.item);
+      break;
+
+    case 'CRAFT_CLEAR':
+      if (state.forge) clearSlots(state.forge);
+      break;
+
+    case 'CRAFT_COMBINE':
+      tryCraft(state);
       break;
 
     case 'FORGE_BEGIN':
@@ -149,11 +191,8 @@ export function dispatch(state: GameState, cmd: Command): void {
       break;
 
     case 'MENU_ROW':
-      if (state.forge && state.forge.stage === 'select') {
-        state.forge.cursorRow = (state.forge.cursorRow + cmd.delta + 3) % 3;
-      } else {
-        menuMove(state, cmd.delta);
-      }
+      if (state.phase === 'forge') forgeRow(state, cmd.delta);
+      else menuMove(state, cmd.delta);
       break;
 
     case 'MENU_CONFIRM':
@@ -217,22 +256,60 @@ function leaveMine(state: GameState): void {
     return;
   }
   state.forge = createForgeState(state);
-  // Подставляем осмысленный стартовый выбор: то, чего в рюкзаке больше всего.
-  state.forge.primary = richestMaterial(state) ?? null;
   state.phase = 'forge';
   state.mine = null;
 
   if (!canForgeAnything(state.meta)) {
-    notice(state, `Ни одного материала не набралось на ${RECIPE_PRIMARY} — придётся спуститься ещё раз`);
+    notice(state, 'Ни на оружие, ни на соединение не хватает — придётся спуститься ещё раз');
   }
+}
+
+/** Кладёт предмет на верстак: под курсором или явно указанный (тап пальцем). */
+function craftPick(state: GameState, item?: ItemId): void {
+  const forge = state.forge;
+  if (!forge || forge.stage !== 'plan') return;
+
+  const chosen = item ?? itemAtCursor(state);
+  if (!chosen || state.meta.backpack[chosen] <= 0) return;
+
+  forge.tab = 'craft';
+  putInSlot(forge, chosen);
+}
+
+/** Соединение на верстаке. Отказ всегда объясняется словами, а не молчанием. */
+function tryCraft(state: GameState): void {
+  const forge = state.forge;
+  if (!forge || forge.stage !== 'plan') return;
+
+  if (forge.slotA === null || forge.slotB === null) {
+    notice(state, 'Верстаку нужны два предмета');
+    return;
+  }
+  if (!canCraft(state)) {
+    notice(state, 'Эта пара не соединяется');
+    return;
+  }
+
+  const known = state.meta.known.slice();
+  const out = craft(state);
+  if (!out) return;
+
+  const first = known.indexOf(out) < 0;
+  notice(state, first ? `Открыто: ${ITEMS[out].name}` : `Получилось: ${ITEMS[out].name}`);
+
+  // Если основа кончилась или появилось что-то лучше, наковальня должна это знать.
+  if (forge.base === null || state.meta.backpack[forge.base] < WEAPON_BASE_COST) {
+    forge.base = bestBase(state);
+  }
+  if (forge.inlay !== null && state.meta.backpack[forge.inlay] <= 0) forge.inlay = null;
 }
 
 function tryBeginForge(state: GameState): void {
   const forge = state.forge;
-  if (!forge || forge.stage !== 'select') return;
+  if (!forge || forge.stage !== 'plan') return;
 
-  if (forge.primary === null) {
-    notice(state, 'Не выбран основной материал');
+  if (forge.base === null) {
+    notice(state, 'Не выбрана основа. Сырьё не годится — сперва переплавь его на верстаке');
     return;
   }
   if (!canForge(state)) {
@@ -244,18 +321,19 @@ function tryBeginForge(state: GameState): void {
 
 function missingText(state: GameState): string {
   const forge = state.forge;
-  if (!forge || forge.primary === null) return 'Не хватает материалов';
+  if (!forge || forge.base === null) return 'Не хватает предметов';
+
   const bp = state.meta.backpack;
   const parts: string[] = [];
-  for (const m of MATERIAL_ORDER) {
-    const need = requiredAmount(m, forge.primary, forge.secondary);
-    if (need > bp[m]) parts.push(`${materialName(m)}: ${bp[m]}/${need}`);
-  }
-  return `Не хватает материалов — ${parts.join(', ')}`;
-}
+  const items: ItemId[] = forge.inlay && forge.inlay !== forge.base
+    ? [forge.base, forge.inlay]
+    : [forge.base];
 
-function materialName(m: MaterialId): string {
-  return MATERIALS[m].name;
+  for (const id of items) {
+    const need = requiredAmount(id, forge.base, forge.inlay);
+    if (need > bp[id]) parts.push(`${ITEMS[id].name}: ${bp[id]}/${need}`);
+  }
+  return `Не хватает — ${parts.join(', ')}`;
 }
 
 function takeWeapon(state: GameState): void {
@@ -279,7 +357,7 @@ function takeWeapon(state: GameState): void {
 function returnToMine(state: GameState): void {
   const forge = state.forge;
   const run = state.run;
-  if (!forge || !run || forge.stage !== 'select') return;
+  if (!forge || !run || forge.stage !== 'plan') return;
 
   state.forge = null;
   state.mine = null;
@@ -288,28 +366,32 @@ function returnToMine(state: GameState): void {
   notice(state, 'Спускаешься ещё раз. Здоровье не восстановится.');
 }
 
-/** Материал, на который сейчас наведён курсор рецепта. */
-export function selectedMaterial(state: GameState): MaterialId | null {
+/** Предмет, на который сейчас наведён игрок: клетка сетки или строка наковальни. */
+export function selectedItem(state: GameState): ItemId | null {
   const forge = state.forge;
   if (!forge) return null;
-  return forge.cursorRow === 2 ? forge.secondary : forge.primary;
+  if (forge.tab === 'craft') return itemAtCursor(state);
+  return forge.assembleRow === 2 ? forge.inlay : forge.base;
 }
 
-/** Выбрасывает весь запас выбранного материала — освобождает рюкзак под нужную руду. */
+/** Выбрасывает весь запас выбранного предмета — освобождает рюкзак под нужную руду. */
 function discardSelected(state: GameState): void {
   const forge = state.forge;
-  if (!forge || forge.stage !== 'select') return;
+  if (!forge || forge.stage !== 'plan') return;
 
-  const material = selectedMaterial(state);
-  if (!material) return;
+  const item = selectedItem(state);
+  if (!item) return;
 
-  const amount = state.meta.backpack[material];
+  const amount = state.meta.backpack[item];
   if (amount <= 0) return;
 
-  state.meta.backpack[material] = 0;
-  if (forge.primary === material) forge.primary = richestMaterial(state);
-  if (forge.secondary === material) forge.secondary = null;
-  notice(state, `Выброшено: ${MATERIALS[material].name} ×${amount}`);
+  state.meta.backpack[item] = 0;
+  if (forge.slotA === item) forge.slotA = null;
+  if (forge.slotB === item) forge.slotB = null;
+  if (forge.inlay === item) forge.inlay = null;
+  if (forge.base === item) forge.base = bestBase(state);
+  clampCursor(state);
+  notice(state, `Выброшено: ${ITEMS[item].name} ×${amount}`);
 }
 
 function finishCombat(state: GameState): void {
@@ -364,21 +446,24 @@ function buildHint(state: GameState, won: boolean): string {
   if (!w) return 'В бой без оружия ходить не стоит.';
 
   if (bossId === 'golem' && w.armorPierce < 0.5) {
-    return 'Броня Голема съела 40% урона. Обсидиан проходит сквозь неё.';
+    return 'Броня Голема съела 40% урона. Обсидиановая ветка проходит сквозь неё: литой обсидиан, осадный сплав.';
   }
   if (bossId === 'abyss' && w.magicFraction < 0.5) {
-    return 'Ниже 50% Повелитель поднимает щит: физический урон почти не проходит. Нужен кристалл.';
+    return 'Ниже 50% Повелитель поднимает щит: физический урон почти не проходит. Нужна магия — призма, звёздное ядро.';
   }
   if (bossId === 'harpy' && w.lifesteal <= 0) {
-    return 'Гарпия набивает урон мелкими ударами. Кровавое железо возвращает его обратно.';
+    return 'Гарпия набивает урон мелкими ударами. Кровавая ветка возвращает его обратно: сердечное железо, скорая кровь.';
   }
   if (bossId === 'harpy' && w.interval > 0.9) {
     return 'Тяжёлым оружием в окна Гарпии не попасть. Лёгкое успевает.';
   }
-  if (run.hp <= 0) {
-    return 'Подготовка была верной — не хватило уклонений. Тот же материал, но аккуратнее.';
+  if (ITEMS[w.base].tier <= 1) {
+    return `${ITEMS[w.base].name} — это первый уровень дерева. Соедини два таких и выкуй из того, что получится.`;
   }
-  return 'Материал подобран неплохо. Попробуй другую форму или добери прочности.';
+  if (run.hp <= 0) {
+    return 'Подготовка была верной — не хватило уклонений. Та же основа, но аккуратнее.';
+  }
+  return 'Основа подобрана неплохо. Попробуй другую форму, вставку или уровень выше.';
 }
 
 function abandonRun(state: GameState): void {
@@ -436,25 +521,60 @@ function menuMove(state: GameState, delta: number): void {
   state.menuCursor = (state.menuCursor + delta + len * 2) % len;
 }
 
-/** На экране ковки стрелки влево/вправо меняют значение в текущей строке. */
+/**
+ * Стрелки влево/вправо в кузнице.
+ * На верстаке это движение по сетке рюкзака, на наковальне — смена значения
+ * в текущей строке рецепта.
+ */
 function forgeMove(state: GameState, delta: number): void {
   const forge = state.forge;
-  if (!forge || forge.stage !== 'select') return;
+  if (!forge || forge.stage !== 'plan') return;
 
-  if (forge.cursorRow === 0) {
+  if (forge.tab === 'craft') {
+    const owned = ownedItems(state.meta.backpack);
+    if (owned.length === 0) return;
+    forge.cursor = (forge.cursor + delta + owned.length) % owned.length;
+    return;
+  }
+
+  if (forge.assembleRow === 0) {
     const i = SHAPE_ORDER.indexOf(forge.shape);
     forge.shape = SHAPE_ORDER[(i + delta + SHAPE_ORDER.length) % SHAPE_ORDER.length];
     return;
   }
-  if (forge.cursorRow === 1) {
-    const i = forge.primary ? MATERIAL_ORDER.indexOf(forge.primary) : 0;
-    forge.primary = MATERIAL_ORDER[(i + delta + MATERIAL_ORDER.length) % MATERIAL_ORDER.length];
+
+  if (forge.assembleRow === 1) {
+    // Основой может быть только то, чего хватает на оружие: показывать узлы,
+    // которыми нельзя воспользоваться, — это обещание, которое экран не держит.
+    const options = forgeableItems(state.meta.backpack);
+    if (options.length === 0) return;
+    const i = forge.base ? options.indexOf(forge.base) : 0;
+    forge.base = options[(i + delta + options.length) % options.length];
     return;
   }
-  // Во вторичной строке есть дополнительный вариант «без вторичного».
-  const options: (MaterialId | null)[] = [...MATERIAL_ORDER, null];
-  const i = options.indexOf(forge.secondary);
-  forge.secondary = options[(i + delta + options.length) % options.length];
+
+  // У вставки есть дополнительный вариант «без вставки».
+  const inlays: (ItemId | null)[] = [
+    null,
+    ...ownedItems(state.meta.backpack).filter((id) => isForgeable(id)),
+  ];
+  const i = inlays.indexOf(forge.inlay);
+  forge.inlay = inlays[(i + delta + inlays.length) % inlays.length];
+}
+
+/** Стрелки вверх/вниз: ряд сетки на верстаке, строка рецепта на наковальне. */
+function forgeRow(state: GameState, delta: number): void {
+  const forge = state.forge;
+  if (!forge || forge.stage !== 'plan') return;
+
+  if (forge.tab === 'assemble') {
+    forge.assembleRow = (forge.assembleRow + delta + 3) % 3;
+    return;
+  }
+
+  const owned = ownedItems(state.meta.backpack);
+  if (owned.length === 0) return;
+  forge.cursor = Math.max(0, Math.min(owned.length - 1, forge.cursor + delta * FORGE_GRID_COLS));
 }
 
 function menuConfirm(state: GameState): void {
@@ -482,9 +602,18 @@ function menuConfirm(state: GameState): void {
     case 'forge': {
       const forge = state.forge;
       if (!forge) return;
-      if (forge.stage === 'select') tryBeginForge(state);
-      else if (forge.stage === 'minigame') forgeStrike(state);
-      else takeWeapon(state);
+      if (forge.stage === 'minigame') {
+        forgeStrike(state);
+      } else if (forge.stage === 'done') {
+        takeWeapon(state);
+      } else if (forge.tab === 'assemble') {
+        tryBeginForge(state);
+      } else if (forge.slotA !== null && forge.slotB !== null) {
+        // Оба слота заняты — подтверждение означает «соединяй».
+        tryCraft(state);
+      } else {
+        craftPick(state);
+      }
       break;
     }
 
@@ -525,21 +654,9 @@ function menuBack(state: GameState): void {
 // Вспомогательное
 // ---------------------------------------------------------------------------
 
-function richestMaterial(state: GameState): MaterialId | null {
-  let best: MaterialId | null = null;
-  let bestCount = 0;
-  for (const m of MATERIAL_ORDER) {
-    if (state.meta.backpack[m] > bestCount) {
-      bestCount = state.meta.backpack[m];
-      best = m;
-    }
-  }
-  return best;
-}
-
 /** Текст «сколько нужно» для экрана ковки. */
 export function recipeText(): string {
-  return `${RECIPE_PRIMARY} основного + ${RECIPE_SECONDARY} вторичного`;
+  return `${WEAPON_BASE_COST} основы + 1 вставка`;
 }
 
 export function bossName(id: BossId): string {

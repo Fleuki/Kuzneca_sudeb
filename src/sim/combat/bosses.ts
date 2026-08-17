@@ -79,6 +79,7 @@ export function createBoss(id: BossId): BossState {
     facing: -1,
     hp: def.hp,
     hpMax: def.hp,
+    recoil: 0,
     armor: def.armor,
     shield: 0,
     phase: 1,
@@ -101,7 +102,8 @@ export function stepBoss(combat: CombatState, rng: Rng, dt: number): void {
   const boss = combat.boss;
   boss.px = boss.x;
   boss.py = boss.y;
-  if (boss.hitFlash > 0) boss.hitFlash -= dt;
+  // Вспышки и отдача затухают в stepCombat: они косметика и идут даже во время
+  // заморозки кадра, когда сам босс стоит.
 
   boss.facing = combat.player.x < boss.x ? -1 : 1;
 
@@ -470,7 +472,15 @@ export function stepMinions(combat: CombatState, dt: number): void {
   for (const m of combat.minions) {
     m.px = m.x;
     m.py = m.y;
-    if (m.hitFlash > 0) m.hitFlash -= dt;
+
+    // Отброшенный прислужник сначала долетает, и только потом снова идёт к игроку.
+    if (Math.abs(m.vx) > 12) {
+      m.x += m.vx * dt;
+      m.vx *= Math.pow(0.05, dt);
+      m.x = clamp(m.x, ARENA.left + 12, ARENA.right - 12);
+      if (m.attackTimer > 0) m.attackTimer -= dt;
+      continue;
+    }
 
     const dir = sign(player.x - m.x);
     m.x += dir * 118 * dt;

@@ -22,7 +22,7 @@ import type { HitRegion } from '../render/scenes/scene.ts';
 const TOUCH_SLOP = 20;
 
 /** Действия, которые удерживаются пальцем. */
-type HoldAction = 'left' | 'right' | 'jump' | 'attack' | 'dash';
+type HoldAction = 'left' | 'right' | 'jump' | 'attack' | 'dash' | 'down';
 
 type ButtonId =
   | 'left'
@@ -30,6 +30,7 @@ type ButtonId =
   | 'jump'
   | 'attack'
   | 'dash'
+  | 'aim'
   | 'exit'
   | 'up'
   | 'down'
@@ -38,7 +39,8 @@ type ButtonId =
   | 'ok'
   | 'back'
   | 'mine'
-  | 'drop';
+  | 'drop'
+  | 'craft';
 
 interface ButtonDef {
   id: ButtonId;
@@ -57,6 +59,9 @@ const BUTTONS: ButtonDef[] = [
   { id: 'jump', label: '▲', hold: 'jump', cls: 'kz-btn kz-act kz-jump' },
   { id: 'attack', label: '✦', hold: 'attack', cls: 'kz-btn kz-act kz-attack' },
   { id: 'dash', label: '»', hold: 'dash', cls: 'kz-btn kz-act kz-dash' },
+  // Прицел вниз: с ним удар в воздухе становится ударом с отскоком.
+  // Отдельная кнопка нужна, потому что «вниз» на телефоне взять неоткуда.
+  { id: 'aim', label: '▼', hold: 'down', cls: 'kz-btn kz-move kz-aim' },
   { id: 'exit', label: 'Наверх', tap: { type: 'LEAVE_MINE' }, cls: 'kz-btn kz-wide kz-exit' },
   { id: 'up', label: '▲', tap: { type: 'MENU_ROW', delta: -1 }, cls: 'kz-btn kz-nav kz-up' },
   { id: 'down', label: '▼', tap: { type: 'MENU_ROW', delta: 1 }, cls: 'kz-btn kz-nav kz-down' },
@@ -66,6 +71,7 @@ const BUTTONS: ButtonDef[] = [
   { id: 'back', label: 'Назад', tap: { type: 'MENU_BACK' }, cls: 'kz-btn kz-small kz-back' },
   { id: 'mine', label: 'В шахту', tap: { type: 'RETURN_TO_MINE' }, cls: 'kz-btn kz-small kz-mine' },
   { id: 'drop', label: 'Выбросить', tap: { type: 'DISCARD_SELECTED' }, cls: 'kz-btn kz-small kz-drop' },
+  { id: 'craft', label: 'Соединить', tap: { type: 'CRAFT_COMBINE' }, cls: 'kz-btn kz-wide kz-ok' },
 ];
 
 /** Какие кнопки показывать и что на них написано в текущей фазе. */
@@ -90,16 +96,22 @@ function layoutFor(state: GameState): { visible: Set<ButtonId>; labels: Partial<
       visible.add('jump');
       visible.add('attack');
       visible.add('dash');
+      visible.add('aim');
       labels.attack = '⚔';
       break;
 
     case 'forge': {
       const stage = state.forge?.stage;
-      if (stage === 'select') {
-        // Строки рецепта тапаются напрямую — стрелки только загораживали бы карточку.
-        visible.add('ok');
+      if (stage === 'plan') {
+        // Клетки рюкзака и строки рецепта тапаются напрямую — экранные стрелки
+        // только загораживали бы карточку. Кнопками остаются действия.
+        if (state.forge?.tab === 'craft') {
+          visible.add('craft');
+        } else {
+          visible.add('ok');
+          labels.ok = 'Ковать';
+        }
         visible.add('mine');
-        labels.ok = 'Ковать';
         // «Выбросить» нужно только когда рюкзак полон: иначе место ещё есть.
         if (backpackTotal(state.meta.backpack) >= backpackCapacity(state.meta)) visible.add('drop');
       } else if (stage === 'minigame') {
@@ -378,6 +390,8 @@ export class TouchControls {
     input.attackPressed = this.edges.has('attack');
     input.dash = this.held.has('dash');
     input.dashPressed = this.edges.has('dash');
+    // «Вниз» — это прицел удара, а не движение: в бою вниз ходить некуда.
+    input.down = this.held.has('down');
     return input;
   }
 

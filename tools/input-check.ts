@@ -105,7 +105,21 @@ console.log('');
   // Ставим жилу вплотную к игроку, чтобы удары гарантированно попадали.
   const p = state.mine!.player;
   state.mine!.ore = [
-    { id: 1, x: p.x + 20, y: p.y - PLAYER.h / 2, material: 'iron', hp: 999, amount: 2, mined: false, hitFlash: 0 },
+    {
+      id: 1,
+      x: p.x + 20,
+      y: p.y - PLAYER.h / 2,
+      size: 'vein',
+      item: 'iron_ore',
+      hp: 999,
+      hpMax: 999,
+      amount: 2,
+      mined: false,
+      hitFlash: 0,
+      // Слабое место выключено: проверяем частоту ударов, а не ритм добычи.
+      sweetDelay: 0,
+      sweet: 0,
+    },
   ];
 
   let swings = 0;

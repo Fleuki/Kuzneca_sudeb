@@ -44,9 +44,18 @@ function scriptedRun(seed: number): string {
     tick(state);
   }
 
+  // Крафт по дереву: две руды в слиток, два слитка в сплав — и куём из сплава.
+  dispatch(state, { type: 'CRAFT_PICK', item: 'obsidian_ore' });
+  dispatch(state, { type: 'CRAFT_PICK', item: 'obsidian_ore' });
+  for (let i = 0; i < 4; i++) dispatch(state, { type: 'CRAFT_COMBINE' });
+  dispatch(state, { type: 'CRAFT_CLEAR' });
+  dispatch(state, { type: 'CRAFT_PICK', item: 'obsidian_bar' });
+  dispatch(state, { type: 'CRAFT_PICK', item: 'obsidian_bar' });
+  for (let i = 0; i < 2; i++) dispatch(state, { type: 'CRAFT_COMBINE' });
+
   dispatch(state, { type: 'FORGE_SET_SHAPE', shape: 'heavy' });
-  dispatch(state, { type: 'FORGE_SET_PRIMARY', material: 'obsidian' });
-  dispatch(state, { type: 'FORGE_SET_SECONDARY', material: null });
+  dispatch(state, { type: 'FORGE_SET_BASE', item: 'obsidian_bar' });
+  dispatch(state, { type: 'FORGE_SET_INLAY', item: null });
   dispatch(state, { type: 'FORGE_BEGIN' });
 
   for (let i = 0; i < 60 * 10; i++) {
@@ -68,7 +77,7 @@ function scriptedFight(seed: number): string {
     biome: null,
     hp: PLAYER.hpMax,
     hpMax: PLAYER.hpMax,
-    weapon: buildWeapon('light', 'crystal', 'obsidian', { damage: 1, durability: 1, speed: 1 }, 1, []),
+    weapon: buildWeapon('light', 'prism', 'basalt', { damage: 1, durability: 1, speed: 1 }, 1, []),
     offered: ['abyss'],
   };
   state.phase = 'combat';

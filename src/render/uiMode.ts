@@ -21,3 +21,18 @@ export function isTouchMode(): boolean {
 export function hintFor(keyboard: string, touch: string): string {
   return touchMode ? touch : keyboard;
 }
+
+
+/**
+ * Выключен ли звук. Как и способ ввода, это свойство сеанса, а не состояния:
+ * в сейв и реплей оно попадать не должно (§11).
+ */
+let muted = false;
+
+export function setMuted(value: boolean): void {
+  muted = value;
+}
+
+export function isMuted(): boolean {
+  return muted;
+}

@@ -9,9 +9,11 @@
  *          npm run balance -- --runs 100 --boss golem
  */
 
-import { BOSSES, BOSS_ORDER, DT, MATERIALS, MATERIAL_ORDER, PLAYER, SHAPES, SHAPE_ORDER } from '../src/core/constants.ts';
+import { BOSSES, BOSS_ORDER, DT, MATERIALS, PLAYER, SHAPES, SHAPE_ORDER } from '../src/core/constants.ts';
+import { ITEMS, ITEM_ORDER } from '../src/core/items.ts';
+import type { ItemId } from '../src/core/items.ts';
 import { createRng } from '../src/core/rng.ts';
-import type { BossId, GameState, MaterialId, ShapeId } from '../src/core/types.ts';
+import type { BossId, GameState, ShapeId } from '../src/core/types.ts';
 import { dispatch, tick } from '../src/sim/game.ts';
 import { createGameState } from '../src/sim/state.ts';
 import { createCombat } from '../src/sim/combat/step.ts';
@@ -33,14 +35,14 @@ interface Outcome {
 function simulateFight(
   bossId: BossId,
   shape: ShapeId,
-  primary: MaterialId,
-  secondary: MaterialId | null,
+  base: ItemId,
+  inlay: ItemId | null,
   seed: number,
 ): Outcome {
   const state: GameState = createGameState(seed);
   state.rng = createRng(seed);
 
-  const weapon = buildWeapon(shape, primary, secondary, { damage: 1, durability: 1, speed: 1 }, 1, []);
+  const weapon = buildWeapon(shape, base, inlay, { damage: 1, durability: 1, speed: 1 }, 1, []);
 
   state.run = {
     seed,
@@ -99,12 +101,33 @@ interface Row {
   timeoutRate: number;
 }
 
-function runTable(bossId: BossId, runs: number, secondary: MaterialId | null): Row[] {
+/**
+ * Считается ли этот узел дерева ответом на босса.
+ *
+ * Ответ теперь задаётся не материалом, а свойством: Голема вскрывает пробой
+ * брони, щит Бездны — магический урон, чип-урон Гарпии окупает вампиризм.
+ * Узлов много, и проверять надо именно свойство, а не имя.
+ */
+function isAnswer(bossId: BossId, base: ItemId): boolean {
+  const def = ITEMS[base];
+  switch (BOSSES[bossId].answer) {
+    case 'obsidian':
+      return def.armorPierce >= 0.6;
+    case 'crystal':
+      return def.magicFraction >= 0.6;
+    case 'bloodiron':
+      return def.lifesteal >= 0.08;
+    default:
+      return false;
+  }
+}
+
+function runTable(bossId: BossId, runs: number, tier: number, inlay: ItemId | null): Row[] {
   const rows: Row[] = [];
-  const answer = BOSSES[bossId].answer;
+  const bases = ITEM_ORDER.filter((id) => ITEMS[id].tier === tier);
 
   for (const shape of SHAPE_ORDER) {
-    for (const primary of MATERIAL_ORDER) {
+    for (const primary of bases) {
       let wins = 0;
       let seconds = 0;
       let hp = 0;
@@ -115,7 +138,7 @@ function runTable(bossId: BossId, runs: number, secondary: MaterialId | null): R
         // Сид зависит от комбинации, но повторяем один и тот же набор для всех —
         // сравнение получается честным.
         const seed = 0x5eed0000 + i * 7919;
-        const out = simulateFight(bossId, shape, primary, secondary, seed);
+        const out = simulateFight(bossId, shape, primary, inlay, seed);
         if (out.won) wins += 1;
         seconds += out.seconds;
         hp += out.hpLeft;
@@ -124,8 +147,8 @@ function runTable(bossId: BossId, runs: number, secondary: MaterialId | null): R
       }
 
       rows.push({
-        label: `${SHAPES[shape].name} · ${MATERIALS[primary].name}`,
-        answer: primary === answer,
+        label: `${SHAPES[shape].name} · ${ITEMS[primary].name}`,
+        answer: isAnswer(bossId, primary),
         wins,
         runs,
         avgSeconds: seconds / runs,
@@ -175,21 +198,39 @@ function printTable(bossId: BossId, rows: Row[]): void {
     );
   }
 
-  // Главная проверка баланса: материал-ответ должен быть заметно лучше прочих.
+  // Главная проверка баланса: узел-ответ должен быть заметно лучше прочих.
+  //
+  // Отдельно ловим насыщение: если оружие уровнем выше босса, побеждает вообще
+  // всё, и «место в таблице» перестаёт что-либо значить. Это не поломка баланса,
+  // а плата за 16 единиц сырья, поэтому такой прогон отмечается отдельно.
   const answerBest = sorted.findIndex((r) => r.answer);
+  const bestRate = sorted.length > 0 ? sorted[0].wins / sorted[0].runs : 0;
+  const answerRate = answerBest >= 0 ? sorted[answerBest].wins / sorted[answerBest].runs : 0;
   const verdict =
-    answerBest <= 1
-      ? '✓ материал-ответ в лидерах'
-      : `⚠ материал-ответ только на ${answerBest + 1} месте — числа стоит пересмотреть`;
+    answerBest < 0
+      ? '· среди узлов этого уровня ответа на босса нет'
+      : answerBest <= 1
+        ? '✓ узел-ответ в лидерах'
+        : bestRate - answerRate <= 0.1
+          ? `✓ узел-ответ отстаёт на ${((bestRate - answerRate) * 100).toFixed(0)} п.п. — уровень перерос босса`
+          : `⚠ узел-ответ только на ${answerBest + 1} месте — числа стоит пересмотреть`;
   console.log(verdict);
 }
 
 // ---------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): { runs: number; boss: BossId | null; secondary: MaterialId | null } {
+function parseArgs(argv: string[]): {
+  runs: number;
+  boss: BossId | null;
+  tier: number;
+  inlay: ItemId | null;
+} {
   let runs = 30;
   let boss: BossId | null = null;
-  let secondary: MaterialId | null = null;
+  // По умолчанию меряем второй уровень дерева: это сплавы, до которых доходит
+  // обычный забег с рюкзаком на 20.
+  let tier = 2;
+  let inlay: ItemId | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--runs' && argv[i + 1]) runs = Math.max(1, parseInt(argv[i + 1], 10));
@@ -197,23 +238,26 @@ function parseArgs(argv: string[]): { runs: number; boss: BossId | null; seconda
       const b = argv[i + 1] as BossId;
       if (BOSS_ORDER.indexOf(b) >= 0) boss = b;
     }
-    if (argv[i] === '--secondary' && argv[i + 1]) {
-      const m = argv[i + 1] as MaterialId;
-      if (MATERIAL_ORDER.indexOf(m) >= 0) secondary = m;
+    if (argv[i] === '--tier' && argv[i + 1]) {
+      tier = Math.max(1, Math.min(4, parseInt(argv[i + 1], 10)));
+    }
+    if (argv[i] === '--inlay' && argv[i + 1]) {
+      const id = argv[i + 1] as ItemId;
+      if (ITEM_ORDER.indexOf(id) >= 0) inlay = id;
     }
   }
-  return { runs, boss, secondary };
+  return { runs, boss, tier, inlay };
 }
 
 function main(): void {
-  const { runs, boss, secondary } = parseArgs(process.argv.slice(2));
+  const { runs, boss, tier, inlay } = parseArgs(process.argv.slice(2));
   const bosses = boss ? [boss] : BOSS_ORDER;
 
-  console.log(`Прогон баланса: ${runs} боёв на комбинацию`);
-  console.log(`Вторичный материал: ${secondary ? MATERIALS[secondary].name : 'нет'}`);
+  console.log(`Прогон баланса: ${runs} боёв на комбинацию, уровень дерева ${tier}`);
+  console.log(`Вставка: ${inlay ? ITEMS[inlay].name : 'нет'}`);
 
   const started = Date.now();
-  for (const b of bosses) printTable(b, runTable(b, runs, secondary));
+  for (const b of bosses) printTable(b, runTable(b, runs, tier, inlay));
   console.log('');
   console.log(`Готово за ${((Date.now() - started) / 1000).toFixed(1)} с`);
 }

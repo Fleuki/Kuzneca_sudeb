@@ -9,11 +9,13 @@
 import { MINE, TILE } from '../../core/constants.ts';
 import { TILE_EMPTY, TILE_POISON, TILE_SOLID, TILE_SPIKE } from '../../core/types.ts';
 import { BIOMES } from '../../core/constants.ts';
-import { MATERIAL_ORDER } from '../../core/constants.ts';
+import { MATERIALS, MATERIAL_ORDER } from '../../core/constants.ts';
+import { BAR_OF_ORE } from '../../core/items.ts';
+import type { ItemId } from '../../core/items.ts';
 import { chance, nextInt, pickWeighted, shuffle } from '../../core/rng.ts';
 import type { Rng } from '../../core/rng.ts';
-import type { BiomeId, MineState } from '../../core/types.ts';
-import { emptyBackpack } from '../state.ts';
+import type { BiomeId, MineState, OreEntity, OreSize } from '../../core/types.ts';
+import { emptyInventory } from '../state.ts';
 import { LINK_ROWS, ROOM_ENTRY, ROOM_EXIT, ROOM_H, ROOM_POOL, ROOM_W } from './rooms.ts';
 import type { RoomTemplate } from './rooms.ts';
 
@@ -67,7 +69,8 @@ export function generateMine(rng: Rng, biome: BiomeId, oreAmount: number): MineS
     ore: [],
     crumbles: [],
     stalactites: [],
-    collected: emptyBackpack(),
+    collected: emptyInventory(),
+    sweetStreak: 0,
     exitX: 0,
     exitY: 0,
     atExit: false,
@@ -104,16 +107,11 @@ export function generateMine(rng: Rng, biome: BiomeId, oreAmount: number): MineS
             tiles[idx(gx, y)] = TILE_POISON;
             break;
           case 'o':
-            state.ore.push({
-              id: nextId++,
-              x: cellX,
-              y: cellY + TILE / 2,
-              material: pickWeighted(rng, MATERIAL_ORDER, weights),
-              hp: MINE.oreHp,
-              amount: oreAmount,
-              mined: false,
-              hitFlash: 0,
-            });
+            {
+              const material = pickWeighted(rng, MATERIAL_ORDER, weights);
+              const y0 = cellY + TILE / 2;
+              state.ore.push(makeOre(rng, nextId++, cellX, y0, MATERIALS[material].ore, oreAmount));
+            }
             break;
           case 'c':
             state.crumbles.push({
@@ -285,4 +283,45 @@ function clearHazardsNear(
     }
   }
   state.stalactites = state.stalactites.filter((s) => Math.abs(s.x - x) > radius);
+}
+
+
+/**
+ * Одна жила: размер выпадает случайно, а он же задаёт и число ударов,
+ * и добычу. Самородок вместо сырья отдаёт готовый слиток — это находка,
+ * ради которой стоит свернуть с дороги.
+ */
+function makeOre(rng: Rng, id: number, x: number, y: number, ore: ItemId, amount: number): OreEntity {
+  const sizes: OreSize[] = ['vein', 'lode', 'nugget'];
+  const weights = [MINE.sizeWeights.vein, MINE.sizeWeights.lode, MINE.sizeWeights.nugget];
+  const size = pickWeighted(rng, sizes, weights);
+
+  let hp = MINE.oreHp;
+  let yieldAmount = amount;
+  let item = ore;
+
+  if (size === 'lode') {
+    hp = MINE.lodeHp;
+    yieldAmount = amount * MINE.lodeAmountMult;
+  } else if (size === 'nugget') {
+    hp = MINE.nuggetHp;
+    // Слиток стоит двух единиц сырья, поэтому самородок даёт ровно одну штуку.
+    yieldAmount = 1;
+    item = BAR_OF_ORE[ore] ?? ore;
+  }
+
+  return {
+    id,
+    x,
+    y,
+    size,
+    item,
+    hp,
+    hpMax: hp,
+    amount: yieldAmount,
+    mined: false,
+    hitFlash: 0,
+    sweetDelay: 0,
+    sweet: 0,
+  };
 }

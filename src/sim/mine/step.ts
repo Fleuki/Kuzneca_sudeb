@@ -7,11 +7,11 @@
 
 import { MINE, PLAYER, TILE } from '../../core/constants.ts';
 import { TILE_POISON, TILE_SOLID, TILE_SPIKE } from '../../core/types.ts';
-import { MATERIALS } from '../../core/constants.ts';
+import { ITEMS } from '../../core/items.ts';
 import type { GameState, MineState, OreEntity } from '../../core/types.ts';
 import { bodyRect, clamp, moveX, moveY, rectsOverlap } from '../physics.ts';
 import type { Rect } from '../physics.ts';
-import { addToBackpack, backpackCapacity, backpackTotal } from '../state.ts';
+import { addItem, backpackCapacity, backpackTotal } from '../state.ts';
 
 /**
  * В шахте нельзя умереть насмерть: здоровье не опускается ниже этого значения.
@@ -34,7 +34,7 @@ export function stepMine(state: GameState, dt: number): void {
   stepCrumbles(mine, dt);
   stepStalactites(state, mine, dt);
   stepTileHazards(state, mine, dt);
-  stepOreFlash(mine, dt);
+  stepOre(mine, dt);
   updateExit(mine);
 }
 
@@ -123,20 +123,49 @@ function swingPick(state: GameState, mine: MineState): void {
     }
   }
 
-  if (!best) return;
+  if (!best) {
+    mine.sweetStreak = 0;
+    return;
+  }
 
-  best.hp -= 1;
   best.hitFlash = 0.18;
-  if (best.hp > 0) return;
+
+  // Удар в слабое место раскалывает жилу целиком, чем бы она ни была.
+  // Крупная жила в пять ударов при этом ломается за два — ради этого и стоит
+  // бить в ритм, а не держать кнопку.
+  const onSweet = best.sweet > 0;
+  if (onSweet) {
+    best.hp = 0;
+    mine.sweetStreak += 1;
+  } else {
+    best.hp -= 1;
+    mine.sweetStreak = 0;
+  }
+
+  if (best.hp > 0) {
+    // Порода отзывается не сразу: пауза — это и есть окно для ритма.
+    best.sweetDelay = MINE.sweetDelay;
+    best.sweet = 0;
+    return;
+  }
 
   best.mined = true;
-  const put = addToBackpack(state.meta.backpack, best.material, best.amount, capacity);
-  mine.collected[best.material] += put;
+  best.sweet = 0;
+  best.sweetDelay = 0;
 
-  if (put < best.amount) {
+  const amount = best.amount + (onSweet ? MINE.sweetBonus : 0);
+  const put = addItem(state.meta.backpack, best.item, amount, capacity);
+  mine.collected[best.item] += put;
+
+  const name = ITEMS[best.item].name;
+  if (put < amount) {
     mine.toast = put === 0 ? 'Рюкзак полон' : `Рюкзак полон: влезло только ${put}`;
+  } else if (best.size === 'nugget') {
+    mine.toast = `Самородок! +${put} · ${name}`;
+  } else if (onSweet) {
+    mine.toast = `Точный скол! +${put} · ${name}`;
   } else {
-    mine.toast = `+${put} · ${MATERIALS[best.material].name}`;
+    mine.toast = `+${put} · ${name}`;
   }
   mine.toastTimer = MINE.toastTime;
 }
@@ -253,9 +282,25 @@ function stepStalactites(state: GameState, mine: MineState, dt: number): void {
   }
 }
 
-function stepOreFlash(mine: MineState, dt: number): void {
+/**
+ * Жилы: вспышка от удара и окно слабого места.
+ *
+ * После удара порода «оседает» (`sweetDelay`), затем на ней загорается точка
+ * (`sweet`). Пока точка горит, следующий удар раскалывает жилу целиком.
+ * Окно короткое, но перезарядка кирки в него укладывается — попадание
+ * зависит от ритма, а не от везения.
+ */
+function stepOre(mine: MineState, dt: number): void {
   for (const ore of mine.ore) {
     if (ore.hitFlash > 0) ore.hitFlash -= dt;
+    if (ore.mined) continue;
+
+    if (ore.sweetDelay > 0) {
+      ore.sweetDelay -= dt;
+      if (ore.sweetDelay <= 0) ore.sweet = MINE.sweetWindow;
+    } else if (ore.sweet > 0) {
+      ore.sweet -= dt;
+    }
   }
 }
 

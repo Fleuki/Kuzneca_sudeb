@@ -6,7 +6,8 @@
  * идёт через одну точку, а поток команд можно записать в реплей.
  */
 
-import type { BiomeId, BossId, InputState, MaterialId, ShapeId, UpgradeId } from './types.ts';
+import type { ItemId } from './items.ts';
+import type { BiomeId, BossId, ForgeTab, InputState, ShapeId, UpgradeId } from './types.ts';
 
 export type Command =
   /** Обновить состояние ввода на текущий тик. */
@@ -18,11 +19,21 @@ export type Command =
   | { type: 'SELECT_BIOME'; biome: BiomeId }
   /** Уйти из шахты (доступно в зоне выхода). */
   | { type: 'LEAVE_MINE' }
+  /** Переключить кузницу между верстаком и наковальней. */
+  | { type: 'FORGE_TAB'; tab: ForgeTab }
   | { type: 'FORGE_SET_SHAPE'; shape: ShapeId }
-  | { type: 'FORGE_SET_PRIMARY'; material: MaterialId }
-  /** null — ковать без вторичного материала. */
-  | { type: 'FORGE_SET_SECONDARY'; material: MaterialId | null }
-  /** Перейти от выбора рецепта к мини-игре. */
+  /** Основа оружия — узел дерева, из которого куют боевую часть. */
+  | { type: 'FORGE_SET_BASE'; item: ItemId }
+  /** null — ковать без вставки. */
+  | { type: 'FORGE_SET_INLAY'; item: ItemId | null }
+  /** Курсор по сетке рюкзака на верстаке. */
+  | { type: 'CRAFT_CURSOR'; index: number }
+  /** Положить предмет в свободный слот верстака (по умолчанию — под курсором). */
+  | { type: 'CRAFT_PICK'; item?: ItemId }
+  | { type: 'CRAFT_CLEAR' }
+  /** Соединить два предмета в слотах — главное действие дерева. */
+  | { type: 'CRAFT_COMBINE' }
+  /** Перейти от рецепта к мини-игре. */
   | { type: 'FORGE_BEGIN' }
   /** Удар молотом в мини-игре. */
   | { type: 'FORGE_STRIKE' }
@@ -35,9 +46,9 @@ export type Command =
    */
   | { type: 'RETURN_TO_MINE' }
   /**
-   * Выбросить весь запас материала, выбранного сейчас в рецепте. Полный рюкзак,
-   * в котором ни одного материала не набралось на рецепт (8/6/4/2 при вместимости
-   * 20), — это тоже тупик: добирать некуда, ковать не из чего.
+   * Выбросить весь запас предмета, выбранного сейчас в кузнице. Полный рюкзак,
+   * из которого ничего не собирается, — это тоже тупик: добирать некуда,
+   * ковать не из чего.
    */
   | { type: 'DISCARD_SELECTED' }
   /** Закрыть экран результата. */

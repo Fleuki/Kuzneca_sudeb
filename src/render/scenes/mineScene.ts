@@ -11,13 +11,15 @@ import {
   BIOMES,
   BOSSES,
   MATERIALS,
-  MATERIAL_ORDER,
   MINE,
   PLAYER,
   TILE,
   VIEW_H,
   VIEW_W,
 } from '../../core/constants.ts';
+import { ITEMS, ORE_ITEMS } from '../../core/items.ts';
+import { Atmosphere } from '../atmosphere.ts';
+import { BIOME_ATMOSPHERE } from '../themes.ts';
 import { TILE_POISON, TILE_SOLID, TILE_SPIKE } from '../../core/types.ts';
 import type { GameState, MineState } from '../../core/types.ts';
 import { backpackCapacity, backpackTotal } from '../../sim/state.ts';
@@ -32,11 +34,25 @@ const WORLD_Y = 62;
 export class MineScene implements Scene {
   container = new Container();
   private world = new Container();
+  /** Задник живёт вне мира: он двигается сам, со своим параллаксом. */
+  private atmosphere = new Atmosphere();
   private tilesG = new Graphics();
   private entitiesG = new Graphics();
   private hudG = new Graphics();
 
   private builtFor: MineState | null = null;
+
+  /**
+   * Косметика удара киркой: крошка от породы и лёгкая тряска.
+   *
+   * Живёт в рендере и использует своё время и Math.random — на симуляцию это
+   * не влияет. Язык у удара тот же, что и в бою: попал — из места удара летят
+   * искры, точный скол светится ярче.
+   */
+  private chips: { x: number; y: number; vx: number; vy: number; life: number; color: number }[] = [];
+  private oreFlash = new Map<number, number>();
+  private shake = 0;
+  private lastTime = 0;
 
   private hpLabel = makeText('', style(13, COLORS.textDim));
   private packLabel = makeText('', style(13, COLORS.textDim));
@@ -48,9 +64,10 @@ export class MineScene implements Scene {
 
   constructor() {
     this.world.addChild(this.tilesG, this.entitiesG);
-    this.container.addChild(this.world, this.hudG);
+    // Порядок важен: задник, потом мир, потом HUD.
+    this.container.addChild(this.atmosphere.container, this.world, this.hudG);
     this.container.addChild(this.hpLabel, this.packLabel, this.targetLabel, this.biomeLabel);
-    for (let i = 0; i < MATERIAL_ORDER.length; i++) {
+    for (let i = 0; i < ORE_ITEMS.length; i++) {
       const t = makeText('', style(13, COLORS.textDim));
       this.stockLabels.push(t);
       this.container.addChild(t);
@@ -71,14 +88,72 @@ export class MineScene implements Scene {
     const px = interp(mine.player.px, mine.player.x, alpha);
     const py = interp(mine.player.py, mine.player.y, alpha);
 
+    const frameDt = Math.min(0.05, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    this.stepChips(mine, frameDt);
+
     // Камера едет только по горизонтали: уровень по высоте помещается в экран.
     const worldW = mine.width * TILE;
     let camX = px - VIEW_W / 2;
     camX = Math.max(0, Math.min(worldW - VIEW_W, camX));
-    this.world.position.set(-Math.round(camX), WORLD_Y);
+
+    // Задник: биом должен читаться воздухом, а не только цветом камня.
+    this.atmosphere.setTheme(`mine:${run.biome}`, BIOME_ATMOSPHERE[run.biome]);
+    this.atmosphere.draw(camX, frameDt, time);
+    // Тряска от удара киркой — короткая и мелкая: это порода, а не босс.
+    const sx = Math.sin(time * 94) * this.shake * 4;
+    const sy = Math.cos(time * 77) * this.shake * 3;
+    this.world.position.set(-Math.round(camX) + sx, WORLD_Y + sy);
 
     this.drawEntities(mine, px, py, time);
     this.drawHud(state, mine, run.biome);
+  }
+
+  /**
+   * Ищет свежие удары по руде и подбрасывает крошку.
+   *
+   * Симуляция про рендер не знает и событий не шлёт, поэтому смотрим на
+   * `hitFlash`: он выставляется ровно в момент удара, и его рост — это и есть
+   * событие «кирка попала».
+   */
+  private stepChips(mine: MineState, dt: number): void {
+    for (const ore of mine.ore) {
+      const prev = this.oreFlash.get(ore.id) ?? 0;
+      if (ore.hitFlash > prev + 1e-6) {
+        const def = ITEMS[ore.item];
+        // Точный скол в слабое место отмечается ярче обычного удара.
+        const precise = ore.mined && ore.sweet <= 0 && ore.hpMax > 1;
+        const count = precise ? 14 : 8;
+        for (let i = 0; i < count; i++) {
+          const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
+          const speed = 60 + Math.random() * (precise ? 260 : 150);
+          this.chips.push({
+            x: ore.x,
+            y: ore.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 0.25 + Math.random() * 0.2,
+            color: i % 3 === 0 ? COLORS.emberHot : def.color,
+          });
+        }
+        this.shake = Math.min(0.5, this.shake + (precise ? 0.35 : 0.16));
+      }
+      this.oreFlash.set(ore.id, ore.hitFlash);
+    }
+
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 4);
+
+    const alive = [];
+    for (const c of this.chips) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.vy += 950 * dt;
+      c.vx *= Math.pow(0.3, dt);
+      alive.push(c);
+    }
+    this.chips = alive;
   }
 
   // -------------------------------------------------------------------------
@@ -90,8 +165,9 @@ export class MineScene implements Scene {
     const def = BIOMES[biome];
     g.clear();
 
-    // Фон пещеры.
-    g.rect(0, 0, mine.width * TILE, mine.height * TILE).fill(def.bgColor);
+    // Фон пещеры — полупрозрачный: сквозь него просвечивают дальние планы
+    // атмосферного слоя. Непрозрачная заливка съедала бы весь параллакс.
+    g.rect(0, 0, mine.width * TILE, mine.height * TILE).fill({ color: def.bgColor, alpha: 0.72 });
 
     for (let y = 0; y < mine.height; y++) {
       for (let x = 0; x < mine.width; x++) {
@@ -138,20 +214,70 @@ export class MineScene implements Scene {
     const g = this.entitiesG;
     g.clear();
 
-    // Руда
+    // Руда. Размер жилы читается силуэтом: обычная — камешек, крупная — глыба,
+    // самородок — гранёный ромб, ради которого стоит свернуть с дороги.
     for (const ore of mine.ore) {
       if (ore.mined) continue;
-      const mat = MATERIALS[ore.material];
-      const size = 15;
+      const def = ITEMS[ore.item];
       const flash = ore.hitFlash > 0;
-      g.roundRect(ore.x - size / 2, ore.y - size / 2, size, size, 3)
-        .fill(flash ? 0xffffff : mat.color)
-        .stroke({ width: 2, color: mat.darkColor, alignment: 1 });
+      const fill = flash ? 0xffffff : def.color;
+      const size = ore.size === 'lode' ? 24 : 15;
+
+      // Ореол: жила — единственный источник света в штольне, и именно на неё
+      // игрок смотрит. Дышит медленно, чтобы не спорить с искрами слабого места.
+      const halo = 0.9 + 0.1 * Math.sin(time * 1.8 + ore.id);
+      g.circle(ore.x, ore.y, size * 1.35 * halo).fill({ color: def.color, alpha: 0.045 });
+      g.circle(ore.x, ore.y, size * 0.85 * halo).fill({ color: def.color, alpha: 0.07 });
+
+      if (ore.size === 'nugget') {
+        const r = 11;
+        g.moveTo(ore.x, ore.y - r)
+          .lineTo(ore.x + r, ore.y)
+          .lineTo(ore.x, ore.y + r)
+          .lineTo(ore.x - r, ore.y)
+          .fill(fill)
+          .stroke({ width: 2, color: def.darkColor, alignment: 1 });
+        // Самородок всегда чуть светится: слиток даром — это событие.
+        g.circle(ore.x, ore.y, 15 + Math.sin(time * 3) * 2).stroke({
+          width: 1,
+          color: def.color,
+          alpha: 0.35,
+        });
+      } else {
+        g.roundRect(ore.x - size / 2, ore.y - size / 2, size, size, 3)
+          .fill(fill)
+          .stroke({ width: 2, color: def.darkColor, alignment: 1 });
+        if (ore.size === 'lode') {
+          g.rect(ore.x - size / 2 + 4, ore.y - size / 2 + 4, size - 8, size - 8).stroke({
+            width: 1,
+            color: def.darkColor,
+            alpha: 0.8,
+          });
+        }
+      }
+
       // Блик — подсказывает, что объект интерактивный.
       g.rect(ore.x - 4, ore.y - 5, 3, 3).fill({ color: 0xffffff, alpha: 0.7 });
+
+      // Слабое место: пока горит точка, следующий удар раскалывает жилу целиком.
+      if (ore.sweet > 0) {
+        const pulse = 0.6 + 0.4 * Math.sin(time * 14);
+        g.circle(ore.x, ore.y, 4).fill({ color: COLORS.emberHot, alpha: pulse });
+        g.circle(ore.x, ore.y, size * 0.75 + 4).stroke({
+          width: 2,
+          color: COLORS.emberHot,
+          alpha: 0.5 * pulse,
+        });
+      }
+
       // Оставшаяся прочность жилы.
-      if (ore.hp < MINE.oreHp) {
-        g.rect(ore.x - size / 2, ore.y + size / 2 + 3, size, 2).fill({ color: COLORS.danger, alpha: 0.8 });
+      if (ore.hp < ore.hpMax) {
+        const w = size;
+        g.rect(ore.x - w / 2, ore.y + size / 2 + 3, w, 2).fill({ color: COLORS.danger, alpha: 0.5 });
+        g.rect(ore.x - w / 2, ore.y + size / 2 + 3, (w * ore.hp) / ore.hpMax, 2).fill({
+          color: COLORS.danger,
+          alpha: 0.9,
+        });
       }
     }
 
@@ -205,6 +331,16 @@ export class MineScene implements Scene {
       g.moveTo(cx, cy).lineTo(ex, ey).stroke({ width: 4, color: 0x9a8a6a });
       g.circle(ex, ey, 4).fill(0xb0b8c0);
     }
+
+    // Крошка от ударов киркой — поверх всего, как искры в бою.
+    this.drawChips(g);
+  }
+
+  private drawChips(g: Graphics): void {
+    for (const c of this.chips) {
+      const a = Math.min(1, c.life / 0.35);
+      g.rect(c.x - 1.5, c.y - 1.5, 3, 3).fill({ color: c.color, alpha: a });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -233,16 +369,22 @@ export class MineScene implements Scene {
     this.packLabel.style.fill = full ? COLORS.ember : COLORS.textDim;
     this.packLabel.position.set(244, 32);
 
-    // Что уже лежит в рюкзаке — чтобы решать, что добивать.
+    // Что уже лежит в рюкзаке — чтобы решать, что добивать. Показываем сырьё:
+    // в шахте важно именно оно, слитки и сплавы игрок собирает наверху.
     let sx = 472;
-    for (let i = 0; i < MATERIAL_ORDER.length; i++) {
-      const m = MATERIAL_ORDER[i];
-      const count = state.meta.backpack[m];
+    for (let i = 0; i < this.stockLabels.length; i++) {
+      const id = ORE_ITEMS[i];
       const t = this.stockLabels[i];
-      t.text = `${MATERIALS[m].short} ${count}`;
-      t.style.fill = count > 0 ? MATERIALS[m].color : COLORS.textFaint;
+      if (!id) {
+        t.text = '';
+        continue;
+      }
+      const count = state.meta.backpack[id];
+      const def = ITEMS[id];
+      t.text = `${def.short} ${count}`;
+      t.style.fill = count > 0 ? def.color : COLORS.textFaint;
       t.position.set(sx + 12, 15);
-      g.rect(sx, 18, 8, 8).fill(count > 0 ? MATERIALS[m].color : COLORS.textFaint);
+      g.rect(sx, 18, 8, 8).fill(count > 0 ? def.color : COLORS.textFaint);
       sx += 62;
     }
 

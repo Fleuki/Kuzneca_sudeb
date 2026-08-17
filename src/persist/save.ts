@@ -11,6 +11,7 @@
  */
 
 import { SAVE_VERSION } from '../core/constants.ts';
+import { emptyInventory } from '../sim/state.ts';
 import { emptyInput } from '../core/types.ts';
 import type { GameState } from '../core/types.ts';
 
@@ -85,9 +86,8 @@ export function clearSave(): void {
  * Дешевле, чем ронять сейв игрока из-за одного нового счётчика.
  */
 function migrate(state: GameState): GameState {
-  if (!state.meta.backpack) {
-    state.meta.backpack = { iron: 0, obsidian: 0, crystal: 0, bloodiron: 0 };
-  }
+  if (!state.meta.backpack) state.meta.backpack = emptyInventory();
+  if (!Array.isArray(state.meta.known)) state.meta.known = [];
   if (!Array.isArray(state.meta.upgrades)) state.meta.upgrades = [];
   if (!Array.isArray(state.meta.defeated)) state.meta.defeated = [];
   if (typeof state.meta.runsStarted !== 'number') state.meta.runsStarted = 0;

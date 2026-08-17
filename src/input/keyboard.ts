@@ -131,11 +131,17 @@ function mapKey(code: string, phase: Phase): Command | null {
     return null;
   }
 
-  // Кузница: спуститься ещё раз и выбросить лишнее — из этих двух действий
+  // Кузница. Спуститься ещё раз и выбросить лишнее — из этих двух действий
   // складывается защита от тупика, поэтому они есть и на клавиатуре.
+  // Соединение на верстаке вынесено на отдельную клавишу: Enter здесь занят
+  // раскладыванием предметов по слотам.
   if (phase === 'forge') {
     if (code === 'KeyR') return { type: 'RETURN_TO_MINE' };
     if (code === 'Backspace' || code === 'Delete') return { type: 'DISCARD_SELECTED' };
+    if (code === 'KeyQ' || code === 'Digit1') return { type: 'FORGE_TAB', tab: 'craft' };
+    if (code === 'KeyE' || code === 'Digit2') return { type: 'FORGE_TAB', tab: 'assemble' };
+    if (code === 'KeyC') return { type: 'CRAFT_COMBINE' };
+    if (code === 'KeyX') return { type: 'CRAFT_CLEAR' };
   }
 
   switch (code) {
