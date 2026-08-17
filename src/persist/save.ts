@@ -103,5 +103,13 @@ function migrate(state: GameState): GameState {
   if (state.combat && typeof state.combat.player.jumpCutLock !== 'number') {
     state.combat.player.jumpCutLock = 0;
   }
+  if (state.combat && typeof state.combat.player.dashBuffer !== 'number') {
+    state.combat.player.dashBuffer = 0;
+    state.combat.player.attackBuffer = 0;
+  }
+  if (state.combat && typeof state.combat.freeze !== 'number') {
+    state.combat.freeze = 0;
+    state.combat.impacts = [];
+  }
   return state;
 }

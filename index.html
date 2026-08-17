@@ -108,8 +108,12 @@
       .kz-right  { left:  calc(132px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
       .kz-attack { right: calc(20px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
       .kz-jump   { right: calc(132px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
-      .kz-dash   { right: calc(20px + env(safe-area-inset-right)); bottom: calc(126px + env(safe-area-inset-bottom)); }
-      .kz-aim    { left:  calc(76px + env(safe-area-inset-left));  bottom: calc(126px + env(safe-area-inset-bottom)); }
+      /* Верхний ряд поднят на 150 px, а не на 126: при 126 зоны попадания
+         верхних и нижних кнопок перекрывались на 22 px по вертикали, и палец,
+         ведущий с «влево» на «вправо» по верхней кромке, проваливался в прицел.
+         150 = 20 (низ) + 88 (кнопка) + 42 (зазор больше двух запасов по 20). */
+      .kz-dash   { right: calc(20px + env(safe-area-inset-right)); bottom: calc(150px + env(safe-area-inset-bottom)); }
+      .kz-aim    { left:  calc(76px + env(safe-area-inset-left));  bottom: calc(150px + env(safe-area-inset-bottom)); }
       .kz-exit   { left: 50%; transform: translateX(-50%); bottom: calc(126px + env(safe-area-inset-bottom)); }
       .kz-exit.kz-pressed { transform: translateX(-50%) scale(0.96); }
 
