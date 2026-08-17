@@ -349,6 +349,12 @@ export interface CombatPlayer {
   invuln: number;
   dashCooldown: number;
   dashTimer: number;
+  /**
+   * Буферы нажатий: нажал чуть раньше, чем стало можно, — действие всё равно
+   * случится. Заодно это единственное, что переживает заморозку кадра.
+   */
+  dashBuffer: number;
+  attackBuffer: number;
   /** Кадры неуязвимости внутри рывка. */
   dashIFrames: number;
 

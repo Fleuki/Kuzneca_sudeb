@@ -41,6 +41,8 @@ export function createCombat(state: GameState): CombatState {
       invuln: 0,
       dashCooldown: 0,
       dashTimer: 0,
+      dashBuffer: 0,
+      attackBuffer: 0,
       dashIFrames: 0,
       attackCooldown: 0,
       attackActive: 0,
@@ -79,9 +81,18 @@ export function stepCombat(state: GameState, dt: number): void {
     if (m.hitFlash > 0) m.hitFlash -= dt;
   }
 
+  // Нажатия читаем ДО заморозки и складываем в буферы.
+  //
+  // Это не мелочь, а починка настоящего бага: на заморозке шаг боя не идёт,
+  // а фронты нажатий игровой цикл всё равно съедает в конце кадра. Тап по рывку
+  // или прыжку, пришедшийся на эти 30–120 мс, пропадал совсем — и чем чаще
+  // игрок попадал по боссу, тем чаще у него «не срабатывала кнопка».
+  bufferInput(combat, state.input);
+
   // Заморозка кадра: бой стоит целиком. Таймеры выше — косметика (искры, тряска,
   // вспышки), они продолжают идти, иначе попадание выглядело бы застывшим кадром
-  // без всякой реакции.
+  // без всякой реакции. Буферы нажатий тоже не тают: время для них стоит вместе
+  // с боем.
   if (combat.freeze > 0) {
     combat.freeze -= dt;
     return;
@@ -107,6 +118,14 @@ export function stepCombat(state: GameState, dt: number): void {
 // ---------------------------------------------------------------------------
 // Ощущение удара: заморозка, искры, отдача
 // ---------------------------------------------------------------------------
+
+/** Складывает фронты нажатий в буферы. Работает и на замороженном кадре. */
+function bufferInput(combat: CombatState, input: GameState['input']): void {
+  const p = combat.player;
+  if (input.jumpPressed) p.jumpBuffer = PLAYER.jumpBufferTime;
+  if (input.dashPressed) p.dashBuffer = PLAYER.dashBufferTime;
+  if (input.attackPressed) p.attackBuffer = PLAYER.attackBufferTime;
+}
 
 function stepImpacts(combat: CombatState, dt: number): void {
   if (combat.impacts.length === 0) return;
@@ -179,8 +198,12 @@ function stepPlayer(state: GameState, combat: CombatState, dt: number): void {
 
   const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
 
+  if (p.dashBuffer > 0) p.dashBuffer -= dt;
+  if (p.attackBuffer > 0) p.attackBuffer -= dt;
+
   // Рывок: короткий, с окном неуязвимости 0.15 с (§7).
-  if (input.dashPressed && p.dashCooldown <= 0 && p.dashTimer <= 0) {
+  if (p.dashBuffer > 0 && p.dashCooldown <= 0 && p.dashTimer <= 0) {
+    p.dashBuffer = 0;
     p.dashTimer = PLAYER.dashDuration;
     p.dashIFrames = PLAYER.dashIFrames;
     p.dashCooldown = PLAYER.dashCooldown;
@@ -209,8 +232,8 @@ function stepPlayer(state: GameState, combat: CombatState, dt: number): void {
     if (p.onGround) p.coyote = PLAYER.coyoteTime;
     else if (p.coyote > 0) p.coyote -= dt;
 
-    if (input.jumpPressed) p.jumpBuffer = PLAYER.jumpBufferTime;
-    else if (p.jumpBuffer > 0) p.jumpBuffer -= dt;
+    // Наполняет буфер bufferInput — здесь он только тает.
+    if (p.jumpBuffer > 0) p.jumpBuffer -= dt;
 
     if (p.jumpBuffer > 0 && p.coyote > 0) {
       p.vy = -PLAYER.jumpVelocity;
@@ -236,7 +259,10 @@ function stepPlayer(state: GameState, combat: CombatState, dt: number): void {
   // Направление берётся из зажатых стрелок: вверх — над головой, вниз в воздухе —
   // тот самый удар с отскоком. На земле удар вниз смысла не имеет, поэтому там
   // он остаётся боковым.
-  if (input.attack && p.attackCooldown <= 0) {
+  // Удержание ИЛИ буферизованное нажатие: короткий тап, пришедшийся на заморозку
+  // кадра, обязан сработать так же, как зажатая кнопка.
+  if ((input.attack || p.attackBuffer > 0) && p.attackCooldown <= 0) {
+    p.attackBuffer = 0;
     const interval = weapon ? weapon.interval : FISTS.interval;
     p.attackCooldown = interval;
     p.attackActive = Math.min(SWING_WINDOW, interval * 0.6);

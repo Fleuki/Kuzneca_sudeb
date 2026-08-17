@@ -245,6 +245,61 @@ console.log('');
   );
 }
 
+// --- Нажатия во время заморозки не теряются ---------------------------------
+{
+  // Ровно тот баг, который нашёлся на плейтесте: на заморозке шаг боя не идёт,
+  // а фронт нажатия игровой цикл съедает. Тап по рывку в это окно пропадал.
+  const state = fight();
+  const combat = state.combat!;
+  standAtBoss(combat);
+
+  const hit = emptyInput();
+  hit.attack = true;
+  hit.attackPressed = true;
+  step(state, hit);
+  check('после попадания кадр заморожен', combat.freeze > 0);
+
+  // Нажимаем рывок ровно в замороженном кадре и тут же отпускаем — как тап.
+  const dash = emptyInput();
+  dash.dash = true;
+  dash.dashPressed = true;
+  step(state, dash);
+  check('рывок, нажатый на заморозке, запомнен', combat.player.dashBuffer > 0);
+
+  // Дальше игрок кнопок не трогает: рывок обязан случиться сам, как отпустит.
+  let dashed = false;
+  for (let i = 0; i < 20; i++) {
+    step(state);
+    if (combat.player.dashTimer > 0) dashed = true;
+  }
+  check('и срабатывает, как только бой пошёл дальше', dashed);
+}
+
+{
+  // То же для короткого тапа по удару: нажал и отпустил внутри заморозки.
+  const state = fight('heavy');
+  const combat = state.combat!;
+  standAtBoss(combat);
+
+  const first = emptyInput();
+  first.attack = true;
+  first.attackPressed = true;
+  step(state, first);
+  combat.player.attackCooldown = 0;
+
+  const tap = emptyInput();
+  tap.attack = true;
+  tap.attackPressed = true;
+  step(state, tap);
+
+  let swung = false;
+  for (let i = 0; i < 20; i++) {
+    step(state);
+    if (combat.player.attackActive > 0) swung = true;
+  }
+  check('короткий тап по удару на заморозке не пропадает', swung);
+}
+
 // --- Доля заморозки в бою ---------------------------------------------------
 {
   // Полный бой ботом: заморозка не должна съедать заметную часть боя,
